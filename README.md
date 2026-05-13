@@ -1,101 +1,111 @@
-<div align="center">
-
 <br>
-
-<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=36&duration=3000&pause=1000&color=3B82F6&center=true&vCenter=true&width=600&lines=InkAI;AI+%C3%97+%E5%B0%8F%E8%AF%B4%E5%88%9B%E4%BD%9C;%E4%BB%8E%E5%88%9B%E6%84%8F%E5%88%B0%E6%88%90%E5%93%81" alt="InkAI" />
-
-**<sup>长篇小说智能创作框架</sup>**
-
-<br>
-
-<a href="#-quick-start"><img src="https://img.shields.io/badge/QUICK_START-⚡-3B82F6?style=for-the-badge&labelColor=1E293B" /></a>
-<a href="#-architecture"><img src="https://img.shields.io/badge/ARCHITECTURE-🏗-6366F1?style=for-the-badge&labelColor=1E293B" /></a>
-<a href="#-api"><img src="https://img.shields.io/badge/API-🔌-8B5CF6?style=for-the-badge&labelColor=1E293B" /></a>
-
-<br>
-
----
-
-<table align="center"><tr>
-<td align="center" width="140"><b>25</b><br><sup>专业 Agent</sup></td>
-<td align="center" width="140"><b>5</b><br><sup>创作阶段</sup></td>
-<td align="center" width="140"><b>6</b><br><sup>评估维度</sup></td>
-<td align="center" width="140"><b>70+</b><br><sup>风格标签</sup></td>
-<td align="center" width="140"><b>1000+</b><br><sup>章续航</sup></td>
-<td align="center" width="140"><b>MIT</b><br><sup>开源协议</sup></td>
-</tr></table>
-
----
-
-</div>
-
-## 概述
-
-**InkAI** 不是"AI 续写"——它是一个**完整的创作工场**。
-
-输入一句"我想写一本都市悬疑"，25 个专业 Agent 协同运转：分析需求 → 推荐标签 → 塑造角色（Big Five 人格模型）→ 构建三幕故事线 → 写作正文 → 多维度质量评估 → 自动改进。循环往复，直到完成一部逻辑自洽、人物立体、伏笔闭合的长篇小说。
 
 <div align="center">
 
-> *"短篇靠单点爆发，中长篇靠长线闭环"*
+<a href="#"><img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=42&duration=2800&pause=1200&color=3B82F6&center=true&vCenter=true&width=700&lines=InkAI;From+Idea+to+Novel;%E4%BB%8E%E5%88%9B%E6%84%8F%E5%88%B0%E6%88%90%E5%93%81" /></a>
+
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/AI_x_Novel_Generation-25_Agents_%C2%B7_5_Stages_%C2%B7_6_Dimensions-3B82F6?style=for-the-badge&labelColor=0F172A" />
+  <img src="https://img.shields.io/badge/AI_x_Novel_Generation-25_Agents_%C2%B7_5_Stages_%C2%B7_6_Dimensions-3B82F6?style=for-the-badge&labelColor=1E293B" />
+</picture>
+
+<br>
+<br>
+
+<table>
+<tr>
+<td align="center" width="160"><b style="font-size:28px">25</b><br><sub>Agents</sub></td>
+<td align="center" width="160"><b style="font-size:28px">5</b><br><sub>Pipeline Stages</sub></td>
+<td align="center" width="160"><b style="font-size:28px">6D</b><br><sub>Quality Audit</sub></td>
+<td align="center" width="160"><b style="font-size:28px">70+</b><br><sub>Genre Tags</sub></td>
+<td align="center" width="160"><b style="font-size:28px">∞</b><br><sub>Chapter Continuation</sub></td>
+</tr>
+</table>
+
+<br>
+
+<a href="#quickstart"><img src="https://img.shields.io/badge/⚡_Quick_Start-3B82F6?style=for-the-badge&logo=rocket&logoColor=white&labelColor=1E293B" /></a>
+&nbsp;
+<a href="#architecture"><img src="https://img.shields.io/badge/🏗_Architecture-6366F1?style=for-the-badge&labelColor=1E293B" /></a>
+&nbsp;
+<a href="#api"><img src="https://img.shields.io/badge/🔌_API_Reference-8B5CF6?style=for-the-badge&labelColor=1E293B" /></a>
 
 </div>
 
 ---
 
-## 创作流水线
+<div align="center">
+
+### &nbsp;&nbsp;🎯 A Complete AI Novel Writing Factory&nbsp;&nbsp;
+
+</div>
+
+**InkAI** is not an "AI autocomplete" tool. It is a full-stack fiction generation framework.
+
+Give it *one sentence* — "I want to write an urban suspense thriller" — and 25 specialized AI agents spring into action. They analyze your intent, recommend genre tags, design characters with psychological depth (Big Five personality model), construct a three-act narrative architecture, write chapter after chapter at 2,000-5,000 words each, and then audit every output across 6 quality dimensions — rewriting anything that falls below the 80-point threshold. The result is a coherent, consistent long-form novel with proper foreshadowing, character arcs, and world-building.
+
+---
 
 ```mermaid
 graph LR
-    A["<b>🎯 需求输入</b><br/>一句话描述"] -->|"TagSelector"| B["<b>🏷 标签推荐</b><br/>70+ 四维标签库"]
-    B -->|"CharacterCreator"| C["<b>👤 角色创建</b><br/>Big Five × 20 维度"]
-    C -->|"StorylineGenerator"| D["<b>📖 故事线</b><br/>三幕剧 × 章纲 × 伏笔"]
-    D -->|"ChapterWriter"| E["<b>✍ 章节写作</b><br/>2000-5000 字/章"]
-    E -->|"QualityAssessor"| F{"<b>✅ 质量评估</b><br/>五维综合评分"}
-    F -->|"≥ 80 分"| G["<b>📦 保存入库</b>"]
-    F -->|"&lt; 80 分"| H["<b>🔧 自动改进</b>"]
+    A("<b>🎯 Input</b><br/>One-sentence<br/>description") --> B("<b>🏷 Tags</b><br/>4D genre<br/>classification")
+    B --> C("<b>👤 Characters</b><br/>Big Five<br/>personality model")
+    C --> D("<b>📖 Storyline</b><br/>Three-act structure<br/>chapter outline")
+    D --> E("<b>✍ Write</b><br/>2000-5000<br/>words/chapter")
+    E --> F{"<b>✅ Audit</b><br/>5D scoring"}
+    F -->|"Pass ≥80"| G("<b>📦 Save</b><br/>to library")
+    F -->|"Retry <80"| H("<b>🔧 Improve</b><br/>auto-rewrite")
     H --> E
 
-    style A fill:#3B82F6,color:#fff,stroke:#2563EB
-    style B fill:#6366F1,color:#fff,stroke:#4F46E5
-    style C fill:#8B5CF6,color:#fff,stroke:#7C3AED
-    style D fill:#A855F7,color:#fff,stroke:#9333EA
-    style E fill:#EC4899,color:#fff,stroke:#DB2777
-    style F fill:#F59E0B,color:#fff,stroke:#D97706
-    style G fill:#10B981,color:#fff,stroke:#059669
-    style H fill:#EF4444,color:#fff,stroke:#DC2626
+    style A fill:#2563EB,color:#fff,stroke:#1D4ED8,stroke-width:2px
+    style B fill:#4F46E5,color:#fff,stroke:#4338CA,stroke-width:2px
+    style C fill:#7C3AED,color:#fff,stroke:#6D28D9,stroke-width:2px
+    style D fill:#9333EA,color:#fff,stroke:#7E22CE,stroke-width:2px
+    style E fill:#DB2777,color:#fff,stroke:#BE185D,stroke-width:2px
+    style F fill:#D97706,color:#fff,stroke:#B45309,stroke-width:2px
+    style G fill:#059669,color:#fff,stroke:#047857,stroke-width:2px
+    style H fill:#DC2626,color:#fff,stroke:#B91C1C,stroke-width:2px
 ```
 
 ---
 
-## 系统架构
+<div id="architecture"></div>
+
+<div align="center">
+
+### &nbsp;&nbsp;🏗 System Architecture&nbsp;&nbsp;
+
+</div>
 
 ```mermaid
 graph TB
-    subgraph L1["&nbsp;&nbsp;🖥 用户界面层&nbsp;&nbsp;"]
-        WEB["Web 前端<br/>Bootstrap 5 + vanilla JS<br/>交互式向导 / 续写面板 / 实时监控"]
+    subgraph L1["&nbsp;&nbsp;🖥 PRESENTATION&nbsp;&nbsp;"]
+        WEB("<b>Web UI</b><br/>Bootstrap 5 SPA<br/>Interactive wizard<br/>Real-time monitor")
     end
 
-    subgraph L2["&nbsp;&nbsp;🌐 API 服务层&nbsp;&nbsp;"]
-        FLASK["Flask REST API<br/>路由 · 校验 · 编排 · 状态"]
+    subgraph L2["&nbsp;&nbsp;🌐 API GATEWAY&nbsp;&nbsp;"]
+        FLASK("<b>Flask REST</b><br/>Routing · Validation<br/>Orchestration · State")
     end
 
-    subgraph L3["&nbsp;&nbsp;⚙ 核心编排层&nbsp;&nbsp;"]
-        WF["InkAIWorkflowOptimized<br/><sub>140KB 单体状态机</sub>"]
-        QCE["QuickContinuationExecutor<br/><sub>异步续写引擎</sub>"]
+    subgraph L3["&nbsp;&nbsp;⚙ ORCHESTRATION&nbsp;&nbsp;"]
+        WF("<b>InkAIWorkflow</b><br/>140KB state machine<br/>Creation pipeline")
+        QCE("<b>Continuation Engine</b><br/>Async chapter<br/>generation loop")
     end
 
-    subgraph L4["&nbsp;&nbsp;🤖 智能体层 · 25 Agents&nbsp;&nbsp;"]
+    subgraph L4["&nbsp;&nbsp;🤖 AGENT LAYER · 25 Agents&nbsp;&nbsp;"]
         direction LR
-        A1["创作 ×5"]
-        A2["续写 ×3"]
-        A3["评估 ×6"]
-        A4["改进 ×11"]
+        A1("<b>Creation</b> ×5")
+        A2("<b>Continuation</b> ×3")
+        A3("<b>Assessment</b> ×6")
+        A4("<b>Improvement</b> ×11")
     end
 
-    subgraph L5["&nbsp;&nbsp;📦 基础设施层&nbsp;&nbsp;"]
-        CORE["知识图谱 · 上下文选择 · 缓存"]
-        DATA["DataManager · JSON 存储"]
+    subgraph L5["&nbsp;&nbsp;📦 INFRASTRUCTURE&nbsp;&nbsp;"]
+        direction LR
+        CORE("<b>Core Services</b><br/>Knowledge Graph<br/>Context Selector")
+        DATA("<b>Data Layer</b><br/>JSON File Store<br/>Zero DB Dependencies")
     end
 
     WEB --> FLASK
@@ -106,168 +116,185 @@ graph TB
     L4 --> CORE
     CORE --> DATA
 
-    style L1 fill:#EFF6FF,stroke:#3B82F6
-    style L2 fill:#EEF2FF,stroke:#6366F1
-    style L3 fill:#F3E8FF,stroke:#8B5CF6
-    style L4 fill:#FCE7F3,stroke:#EC4899
-    style L5 fill:#ECFDF5,stroke:#10B981
-```
-
----
-
-## 智能续写引擎
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant K as 📚 知识库
-    participant S as 🧠 续写故事线
-    participant W as ✍ 章节写作
-    participant A as 🔍 评估矩阵
-    participant I as 🔧 改进引擎
-
-    Note over K,I: 每章一个完整闭环
-
-    W->>K: ① 提取前文状态
-    K-->>S: 角色 · 情节 · 伏笔 · 世界观
-    S->>S: ② 生成续写故事线
-    S-->>W: 章纲 + 事件 + 角色调度
-    W->>W: ③ 正文写作
-    W-->>A: 2000-5000 字
-    A->>A: ④ 六维并行评估
-    alt ⑤ 评分 ≥ 80
-        A-->>K: 合格 · 保存 · 更新知识库
-    else ⑥ 评分 &lt; 80
-        A-->>I: 触发专项改进
-        I-->>W: 改进后重写
-    end
-```
-
-<table align="center"><tr>
-<td align="center"><b>角色一致性</b><br/><sub>行为 · 语言 · 性格轨迹</sub></td>
-<td align="center"><b>情节逻辑</b><br/><sub>因果链 · 漏洞检测</sub></td>
-<td align="center"><b>世界观</b><br/><sub>规则一贯 · 设定统一</sub></td>
-<td align="center"><b>风格一致</b><br/><sub>语气 · 叙事 · 节奏</sub></td>
-<td align="center"><b>读者体验</b><br/><sub>张力 · 共鸣 · 可读性</sub></td>
-<td align="center"><b>长期线索</b><br/><sub>跨卷伏笔 · 大结局</sub></td>
-</tr></table>
-
----
-
-## 快速开始
-
-<div id="-quick-start"></div>
-
-```bash
-git clone https://github.com/yan2959088709/InkAI-.git && cd InkAI-
-pip install -r requirements.txt
-```
-
-编辑 `config.py` 填入 API 密钥，然后：
-
-```bash
-python start_web.py
-# → http://localhost:5000
-```
-
-| 配置项 | 说明 |
-|------|------|
-| `API_KEY` | 智谱 AI GLM-4.5-flash |
-| `EMBEDDING_API_KEY` | SiliconFlow BAAI/bge-m3 |
-| `BASE_URL` | OpenAI 兼容地址（模型可换） |
-| `QUALITY_THRESHOLD` | 质量合格线，默认 80 |
-
-> **兼容性**: Python 3.8+ · Windows / macOS / Linux · 零数据库依赖 · 复制目录即迁移
-
----
-
-## API
-
-<div id="-api"></div>
-
-所有端点返回统一格式：
-
-```json
-{ "ok": true, "data": { } }
-{ "ok": false, "error": "..." }
-```
-
-<table>
-<tr>
-<th width="8%">方法</th>
-<th width="42%">端点</th>
-<th width="50%">功能</th>
-</tr>
-<tr><td><code>POST</code></td><td><code>/api/novels</code></td><td>创建新小说</td></tr>
-<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/tags</code></td><td>智能标签推荐</td></tr>
-<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/characters</code></td><td>创建角色档案</td></tr>
-<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/storyline</code></td><td>生成三幕故事线</td></tr>
-<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/chapters</code></td><td>写作第一章</td></tr>
-<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/continue</code></td><td>启动异步续写</td></tr>
-<tr><td><code>GET</code></td><td><code>/api/novels/&lt;id&gt;/continue/status</code></td><td>查询续写进度</td></tr>
-<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/continue/stop</code></td><td>停止续写</td></tr>
-<tr><td><code>GET</code></td><td><code>/api/novels/&lt;id&gt;</code></td><td>获取小说完整数据</td></tr>
-<tr><td><code>GET</code></td><td><code>/api/novels/&lt;id&gt;/chapter/&lt;n&gt;</code></td><td>获取指定章节</td></tr>
-</table>
-
----
-
-## 项目结构
-
-<div id="-architecture"></div>
-
-```
-InkAI/
-│
-├── 🤖 agents/                         25 个专业 Agent
-│   ├── tag_selector.py                标签推荐
-│   ├── character_creator.py           角色创建 (Big Five)
-│   ├── storyline_generator.py         三幕故事线
-│   ├── chapter_writer.py              章节写作
-│   ├── quality_assessor.py            质量评估
-│   ├── novel_continuation_agent.py    续写管理器
-│   ├── continuation_storyline_*.py    续写故事线
-│   ├── continuation_chapter_*.py      续写章节 ± 改进
-│   ├── continuation_*_assessor.py     六维一致性评估 ×6
-│   └── continuation_*_improver.py     专项改进 ×11
-│
-├── ⚙ core/                           核心服务
-│   ├── core_knowledge_manager.py      知识图谱
-│   ├── dynamic_knowledge_manager.py   动态状态追踪
-│   └── intelligent_context_selector.py 智能上下文
-│
-├── 🖥 frontend/                       Web 前端
-│   ├── index.html                     Bootstrap 5 SPA
-│   ├── app.js                         前端逻辑
-│   └── styles.css                     样式
-│
-├── 📄 app.py                          Flask 服务 (1500 行)
-├── 📄 inkai_workflow_optimized.py     核心编排器 (1650 行)
-├── 📄 quick_continuation_executor.py  异步续写 (900 行)
-├── 📄 data_manager.py                 数据持久化层
-├── 📄 workflow_context.py             工作流上下文
-├── 📄 base_agent.py                   Agent 基类
-├── 📄 config.py                       全局配置
-│
-└── 💾 data/                          运行时数据
-    ├── novels/<uuid>/                 每本小说独立目录
-    └── knowledge_graphs/              知识图谱持久化
+    style L1 fill:#EFF6FF,stroke:#3B82F6,stroke-width:2px
+    style L2 fill:#EEF2FF,stroke:#6366F1,stroke-width:2px
+    style L3 fill:#F3E8FF,stroke:#8B5CF6,stroke-width:2px
+    style L4 fill:#FCE7F3,stroke:#EC4899,stroke-width:2px
+    style L5 fill:#ECFDF5,stroke:#10B981,stroke-width:2px
 ```
 
 ---
 
 <div align="center">
 
+### &nbsp;&nbsp;🔄 Intelligent Continuation Engine&nbsp;&nbsp;
+
+</div>
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant K as 📚 Knowledge Base
+    participant S as 🧠 Storyline Planner
+    participant W as ✍ Chapter Writer
+    participant A as 🔍 Audit Matrix
+    participant I as 🔧 Improver
+
+    rect rgb(239, 246, 255)
+        Note over K,I: Per-Chapter Quality Loop
+        W->>K: Extract prior state
+        K-->>S: Characters · Plot · Foreshadowing · World rules
+        S->>S: Generate chapter outline
+        S-->>W: Scene beats · Character dispatch · Tone
+        W->>W: Write chapter body
+        W-->>A: 2000-5000 word draft
+        A->>A: 6-dimension parallel audit
+        alt Score above threshold
+            A-->>K: Pass · Save · Update knowledge graph
+        else Score below threshold
+            A-->>I: Trigger targeted improvement
+            I-->>W: Rewrite with feedback
+        end
+    end
+```
+
+<table align="center">
+<tr>
+<td align="center" width="150"><b>Character<br/>Consistency</b><br/><sub>Behavior · Voice<br/>Arc trajectory</sub></td>
+<td align="center" width="150"><b>Plot<br/>Logic</b><br/><sub>Causality · No holes<br/>Closure</sub></td>
+<td align="center" width="150"><b>World<br/>Coherence</b><br/><sub>Rules · Setting<br/>Continuity</sub></td>
+<td align="center" width="150"><b>Style<br/>Fidelity</b><br/><sub>Tone · Narrative<br/>Pacing</sub></td>
+<td align="center" width="150"><b>Reader<br/>Experience</b><br/><sub>Tension · Emotion<br/>Readability</sub></td>
+<td align="center" width="150"><b>Long-Term<br/>Threads</b><br/><sub>Cross-volume clues<br/>Grand finale</sub></td>
+</tr>
+</table>
+
+---
+
+<div id="quickstart"></div>
+
+<div align="center">
+
+### &nbsp;&nbsp;⚡ Quick Start&nbsp;&nbsp;
+
+</div>
+
+```bash
+git clone https://github.com/yan2959088709/InkAI-.git
+cd InkAI-
+pip install -r requirements.txt
+```
+
+Edit `config.py` with your API credentials, then:
+
+```bash
+python start_web.py
+# → Open http://localhost:5000
+```
+
+<table align="center">
+<tr>
+<td align="center" width="300"><b>API_KEY</b><br/><sub>Zhipu AI GLM-4.5-flash</sub></td>
+<td align="center" width="300"><b>BASE_URL</b><br/><sub>OpenAI-compatible · Swap any model</sub></td>
+<td align="center" width="300"><b>QUALITY_THRESHOLD</b><br/><sub>Pass line · Default 80/100</sub></td>
+</tr>
+</table>
+
+> **Zero infrastructure**: Python 3.8+ only. No database. No Docker. Copy the directory and run. Windows / macOS / Linux.
+
+---
+
+<div id="api"></div>
+
+<div align="center">
+
+### &nbsp;&nbsp;🔌 REST API&nbsp;&nbsp;
+
+</div>
+
+All endpoints follow a uniform contract:
+
+```json
+{ "ok": true,  "data": { } }
+{ "ok": false, "error": "..." }
+```
+
+<table>
+<tr><th width="10%">Method</th><th width="45%">Endpoint</th><th width="45%">Description</th></tr>
+<tr><td><code>POST</code></td><td><code>/api/novels</code></td><td>Create new novel project</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/tags</code></td><td>AI-powered tag recommendation</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/characters</code></td><td>Generate character profiles</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/storyline</code></td><td>Build three-act storyline</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/chapters</code></td><td>Write first chapter</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/continue</code></td><td>Start async continuation</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/novels/&lt;id&gt;/continue/status</code></td><td>Poll continuation progress</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/novels/&lt;id&gt;/continue/stop</code></td><td>Stop continuation task</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/novels/&lt;id&gt;</code></td><td>Fetch full novel dataset</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/novels/&lt;id&gt;/chapter/&lt;n&gt;</code></td><td>Retrieve chapter by number</td></tr>
+</table>
+
+---
+
+<div align="center">
+
+### &nbsp;&nbsp;📂 Project Map&nbsp;&nbsp;
+
+</div>
+
+```
+InkAI/
+│
+├── 🤖 agents/                   ── 25 specialized AI agents ──
+│   ├── tag_selector.py            Label recommendation
+│   ├── character_creator.py       Big Five personality design
+│   ├── storyline_generator.py     Three-act narrative architecture
+│   ├── chapter_writer.py          Long-form prose generation
+│   ├── quality_assessor.py        Multi-dimensional scoring
+│   ├── novel_continuation_agent.py Continuation orchestrator
+│   ├── continuation_storyline_*.py Per-chapter plot planning
+│   ├── continuation_chapter_*.py  Chapter writing & improvement
+│   ├── continuation_*_assessor.py Six consistency auditors
+│   └── continuation_*_improver.py Eleven targeted fixers
+│
+├── ⚙ core/                     ── Knowledge & context services ──
+│   ├── core_knowledge_manager.py  Graph-based knowledge extraction
+│   ├── dynamic_knowledge_manager.py Real-time state tracking
+│   └── intelligent_context_selector.py Smarter than a sliding window
+│
+├── 🖥 frontend/                 ── Web interface ──
+│   ├── index.html                 Bootstrap 5 SPA
+│   ├── app.js                     Client logic
+│   └── styles.css                 Custom design system
+│
+├── ⚡ app.py                      Flask API server (1,500 LOC)
+├── ⚡ inkai_workflow_optimized.py Core engine (1,650 LOC)
+├── ⚡ quick_continuation_executor.py Async loop (900 LOC)
+├── ⚡ data_manager.py             Persistence layer
+├── ⚡ workflow_context.py         State container
+├── ⚡ base_agent.py               LLM client · JSON repair · retry
+├── ⚡ config.py                   Global configuration
+│
+└── 💾 data/                     ── Runtime storage ──
+    ├── novels/<uuid>/             One directory per novel
+    └── knowledge_graphs/          Persistent graph snapshots
+```
+
+---
+
 <br>
 
-**InkAI** · AI × 小说创作 · 从创意到成品
+<div align="center">
 
-<sub>Powered by LLMs · Built with ☕</sub>
+<img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white" />
+<img src="https://img.shields.io/badge/Flask-000000?style=flat-square&logo=flask&logoColor=white" />
+<img src="https://img.shields.io/badge/Bootstrap-5-7952B3?style=flat-square&logo=bootstrap&logoColor=white" />
+<img src="https://img.shields.io/badge/GLM-4.5-1A73E8?style=flat-square&logo=googleearthengine&logoColor=white" />
+<img src="https://img.shields.io/badge/License-MIT-10B981?style=flat-square" />
+<img src="https://img.shields.io/badge/Version-1.10-3B82F6?style=flat-square" />
 
 <br>
+<br>
 
-<img src="https://img.shields.io/badge/version-1.10-3B82F6?style=flat-square" />
-<img src="https://img.shields.io/badge/license-MIT-10B981?style=flat-square" />
-<img src="https://img.shields.io/badge/python-3.8+-F59E0B?style=flat-square" />
+<sub>Built for storytellers · Powered by LLMs</sub>
 
 </div>
