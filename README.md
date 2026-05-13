@@ -6,6 +6,11 @@
 
 <br>
 
+<a href="README_CN.md"><img src="https://img.shields.io/badge/📖_%E4%B8%AD%E6%96%87%E7%89%88-1E293B?style=for-the-badge&logo=googletranslate&logoColor=white" /></a>
+
+<br>
+<br>
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/AI_x_Novel_Generation-25_Agents_%C2%B7_5_Stages_%C2%B7_6_Dimensions-3B82F6?style=for-the-badge&labelColor=0F172A" />
   <img src="https://img.shields.io/badge/AI_x_Novel_Generation-25_Agents_%C2%B7_5_Stages_%C2%B7_6_Dimensions-3B82F6?style=for-the-badge&labelColor=1E293B" />
@@ -20,7 +25,7 @@
 <td align="center" width="160"><b style="font-size:28px">5</b><br><sub>Pipeline Stages</sub></td>
 <td align="center" width="160"><b style="font-size:28px">6D</b><br><sub>Quality Audit</sub></td>
 <td align="center" width="160"><b style="font-size:28px">70+</b><br><sub>Genre Tags</sub></td>
-<td align="center" width="160"><b style="font-size:28px">∞</b><br><sub>Chapter Continuation</sub></td>
+<td align="center" width="160"><b style="font-size:28px">∞</b><br><sub>Continuation</sub></td>
 </tr>
 </table>
 
@@ -44,7 +49,17 @@
 
 **InkAI** is not an "AI autocomplete" tool. It is a full-stack fiction generation framework.
 
-Give it *one sentence* — "I want to write an urban suspense thriller" — and 25 specialized AI agents spring into action. They analyze your intent, recommend genre tags, design characters with psychological depth (Big Five personality model), construct a three-act narrative architecture, write chapter after chapter at 2,000-5,000 words each, and then audit every output across 6 quality dimensions — rewriting anything that falls below the 80-point threshold. The result is a coherent, consistent long-form novel with proper foreshadowing, character arcs, and world-building.
+Give it *one sentence* — *"I want to write an urban suspense thriller"* — and 25 specialized AI agents spring into action. They analyze your intent, recommend genre tags, design characters with psychological depth (Big Five personality model), construct a three-act narrative architecture, write chapter after chapter at 2,000–5,000 words each, and then audit every output across 6 quality dimensions — rewriting anything that falls below the 80-point threshold. The result is a coherent, consistent long-form novel with proper foreshadowing, character arcs, and world-building.
+
+<details>
+<summary><b>🇨🇳 中文</b></summary>
+<br>
+
+**InkAI** 不是"AI 续写"——它是一个完整的创作工场。
+
+输入一句话——"我想写一本都市悬疑"——25 个专业 Agent 开始协同运转：分析需求 → 推荐标签 → 以 Big Five 人格模型塑造角色 → 构建三幕剧叙事架构 → 逐章产出 2000-5000 字正文 → 每章通过 6 维质量审计 → 不达标自动重写。最终产出逻辑自洽、伏笔闭合、人物立体的长篇小说。
+
+</details>
 
 ---
 
@@ -68,6 +83,19 @@ graph LR
     style G fill:#059669,color:#fff,stroke:#047857,stroke-width:2px
     style H fill:#DC2626,color:#fff,stroke:#B91C1C,stroke-width:2px
 ```
+
+<details>
+<summary><b>🇨🇳 创作流水线说明</b></summary>
+<br>
+
+- **🎯 需求输入** → 一句话描述即可启动
+- **🏷 标签推荐** → 从 70+ 标签库中智能匹配 4 维分类（类型/主题/风格/受众）
+- **👤 角色创建** → Big Five 人格模型 × 20+ 维度 × 完整背景动机
+- **📖 故事线** → 三幕剧结构 + 章纲 + 伏笔账本
+- **✍ 章节写作** → 每章 2000-5000 字，上下文感知
+- **✅ 质量审计** → 五维评分 ≥80 通过；不通过自动重写
+
+</details>
 
 ---
 
@@ -123,6 +151,22 @@ graph TB
     style L5 fill:#ECFDF5,stroke:#10B981,stroke-width:2px
 ```
 
+<details>
+<summary><b>🇨🇳 架构说明</b></summary>
+<br>
+
+五层分层架构：
+
+| 层 | 职责 |
+|---|------|
+| 🖥 **展示层** | Bootstrap 5 SPA，交互式创作向导 + 续写面板 + 实时进度 |
+| 🌐 **API 网关** | Flask REST，路由 / 校验 / 任务编排 / 状态管理 |
+| ⚙ **编排层** | 140KB 核心编排器 + 异步续写引擎 |
+| 🤖 **智能体层** | 25 Agent：创作 5 + 续写 3 + 评估 6 + 改进 11 |
+| 📦 **基础设施** | 知识图谱 / 上下文选择器 / JSON 文件存储（零数据库依赖） |
+
+</details>
+
 ---
 
 <div align="center">
@@ -169,6 +213,21 @@ sequenceDiagram
 </tr>
 </table>
 
+<details>
+<summary><b>🇨🇳 续写流程说明</b></summary>
+<br>
+
+每章一个完整闭环：
+
+1. **提取前文状态** — 从知识库中检索角色状态、情节线、伏笔、世界观规则
+2. **生成续写故事线** — 规划新章节的场景节拍、角色调度、语气基调
+3. **正文写作** — 按故事线生成 2000-5000 字正文
+4. **六维并行评估** — 角色一致性 / 情节逻辑 / 世界观连贯 / 风格一致 / 读者体验 / 长期线索
+5. **≥80 分** → 保存入库，更新知识图谱
+6. **<80 分** → 触发专项改进 → 带着反馈重写 → 再评估
+
+</details>
+
 ---
 
 <div id="quickstart"></div>
@@ -201,6 +260,32 @@ python start_web.py
 </table>
 
 > **Zero infrastructure**: Python 3.8+ only. No database. No Docker. Copy the directory and run. Windows / macOS / Linux.
+
+<details>
+<summary><b>🇨🇳 快速开始</b></summary>
+<br>
+
+```bash
+git clone https://github.com/yan2959088709/InkAI-.git && cd InkAI-
+pip install -r requirements.txt
+```
+
+编辑 `config.py` 填入 API 密钥：
+
+| 配置项 | 说明 |
+|------|------|
+| `API_KEY` | 智谱 AI GLM-4.5-flash |
+| `BASE_URL` | OpenAI 兼容地址，可换任意模型 |
+| `QUALITY_THRESHOLD` | 质量合格线，默认 80/100 |
+
+```bash
+python start_web.py
+# → 浏览器打开 http://localhost:5000
+```
+
+> **零基础设施**: 仅需 Python 3.8+。无数据库、无 Docker、复制目录即运行。Windows / macOS / Linux 全平台兼容。
+
+</details>
 
 ---
 
@@ -284,6 +369,11 @@ InkAI/
 <br>
 
 <div align="center">
+
+<a href="README_CN.md"><img src="https://img.shields.io/badge/📖_%E4%B8%AD%E6%96%87%E7%89%88-Full_Chinese_Translation-1E293B?style=for-the-badge&logo=googletranslate&logoColor=white" /></a>
+
+<br>
+<br>
 
 <img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white" />
 <img src="https://img.shields.io/badge/Flask-000000?style=flat-square&logo=flask&logoColor=white" />
