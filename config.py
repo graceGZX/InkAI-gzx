@@ -4,8 +4,30 @@ InkAI 小说创作系统配置文件
 import os
 from typing import Dict, List
 
+
+def _load_dotenv() -> None:
+    """从项目根目录的 .env 加载环境变量（无第三方依赖）。
+
+    .env 已在 .gitignore 中、不会入库；密钥等敏感配置只放在 .env，
+    源码不再硬编码。已在真实环境中显式设置的变量不会被覆盖。
+    """
+    env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_file):
+        return
+    with open(env_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
 # API配置（DeepSeek，兼容 OpenAI 格式）
-API_KEY = "your_deepseek_api_key_here"
+# 密钥从环境变量读取（见 _load_dotenv / .env），源码不再硬编码
+API_KEY = os.environ.get("INKAI_API_KEY", "")
 BASE_URL = "https://api.deepseek.com"
 MODEL_NAME = "deepseek-v4-flash"
 TEMPERATURE = 0.6
@@ -15,7 +37,7 @@ MAX_TOKENS = 8192  # GLM-4.5-flash的最大输出token数
 CHAPTER_MAX_TOKENS = 8192  # 章节写作专用的最大token数
 
 # 嵌入模型配置 (用于续写功能)
-EMBEDDING_API_KEY = "your_embedding_api_key_here"
+EMBEDDING_API_KEY = os.environ.get("INKAI_EMBEDDING_API_KEY", "")
 EMBEDDING_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/embeddings"
 EMBEDDING_MODEL = "embedding-3"
 
