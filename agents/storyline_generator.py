@@ -44,15 +44,17 @@ class StorylineGeneratorAgent(BaseAgent):
         
         【创作背景】
         类型标签：{self._format_tags(tags)}
+        目标篇幅：{self._format_word_count_target(tags)}
         主角信息：{self._format_character_info(main_character)}
         用户需求：{requirements}
-        
+
         【故事设计要求】
         1. 结构完整性：遵循经典三幕剧结构，确保节奏紧凑
         2. 冲突层次性：设计多层次冲突，从外在到内在
         3. 角色驱动：故事要围绕主角的成长和变化展开
         4. 情感共鸣：创造能引起读者情感共鸣的情节
         5. 商业价值：确保故事具有市场吸引力和改编潜力
+        6. 篇幅适配：严格依据"目标篇幅"规划全书体量与节奏——短篇紧凑单线、快速收束；中篇单主线带少量支线；长篇多线交织、阶段性高潮；超长篇及巨著需宏大世界观、多势力支线与贯穿全书的长线伏笔。三幕剧的事件密度与支线数量必须与目标篇幅匹配
         
         【专业故事架构】
         请按照以下专业结构设计故事线：
@@ -270,7 +272,14 @@ class StorylineGeneratorAgent(BaseAgent):
             else:
                 formatted += f"{category}: 无标签\n"
         return formatted
-    
+
+    def _format_word_count_target(self, tags: Dict[str, List[str]]) -> str:
+        """从标签中提取目标篇幅档位，供故事线规划体量参考"""
+        word_count_tags = (tags or {}).get("字数标签") or []
+        if word_count_tags and isinstance(word_count_tags, list):
+            return word_count_tags[0]
+        return "未指定（默认按长篇（30-80万字）规划）"
+
     def _format_character_info(self, character: Dict[str, Any]) -> str:
         """格式化人物信息"""
         if not character:

@@ -17,6 +17,12 @@ class DataManager:
         self.novels_dir = config.NOVELS_DIR
         self.knowledge_graphs_dir = config.KNOWLEDGE_GRAPHS_DIR
         self._ensure_directories()
+        # 小说列表缓存：避免每个请求都全量扫盘读 metadata.json。
+        # 以 novels_dir 的修改时间(mtime)作为缓存有效性判据——
+        # 新增/删除小说目录会改变该 mtime，缓存自动失效并重新扫描；
+        # 本应用自身的增删操作另会显式失效，保证即时生效。
+        self._novel_list_cache: Optional[List[Dict[str, Any]]] = None
+        self._novel_list_cache_mtime: Optional[float] = None
     
     def _ensure_directories(self):
         """确保目录存在"""
@@ -46,7 +52,8 @@ class DataManager:
         metadata_file = os.path.join(novel_dir, "metadata.json")
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
-        
+
+        self._invalidate_novel_list_cache()
         return novel_id
     
     def save_novel_data(self, novel_id: str, data_type: str, data: Dict[str, Any]) -> bool:
@@ -259,9 +266,33 @@ class DataManager:
             return None
     
     def get_novel_list(self) -> List[Dict[str, Any]]:
-        """获取小说列表"""
-        novels = []
-        
+        """获取小说列表（带缓存）
+
+        首次调用（应用启动后第一次打开）或 novels_dir 发生增删时，扫描磁盘读取
+        各小说 metadata.json；其余情况直接返回缓存的副本，避免重复读盘。
+        """
+        current_mtime = self._get_novels_dir_mtime()
+        if (
+            self._novel_list_cache is not None
+            and self._novel_list_cache_mtime == current_mtime
+        ):
+            return list(self._novel_list_cache)
+
+        novels = self._scan_novel_list()
+        self._novel_list_cache = novels
+        self._novel_list_cache_mtime = current_mtime
+        return list(novels)
+
+    def _get_novels_dir_mtime(self) -> Optional[float]:
+        """获取 novels_dir 的修改时间，用于缓存失效判定。"""
+        try:
+            return os.stat(self.novels_dir).st_mtime
+        except OSError:
+            return None
+
+    def _scan_novel_list(self) -> List[Dict[str, Any]]:
+        """扫描磁盘，读取全部小说的 metadata.json。"""
+        novels: List[Dict[str, Any]] = []
         for novel_id in os.listdir(self.novels_dir):
             novel_dir = os.path.join(self.novels_dir, novel_id)
             if os.path.isdir(novel_dir):
@@ -273,8 +304,12 @@ class DataManager:
                         novels.append(metadata)
                     except Exception as e:
                         print(f"读取小说元数据失败 {novel_id}: {e}")
-        
         return novels
+
+    def _invalidate_novel_list_cache(self) -> None:
+        """显式失效小说列表缓存（本应用增删小说后调用，确保即时生效）。"""
+        self._novel_list_cache = None
+        self._novel_list_cache_mtime = None
     
     def _fix_json_format(self, json_str: str) -> str:
         """修复常见的JSON格式问题"""
@@ -956,23 +991,35 @@ class DataManager:
             return False
     
     def delete_novel(self, novel_id: str) -> bool:
-        """删除整个小说项目"""
+        """删除整个小说项目（幂等）
+
+        采用幂等语义：若小说目录已不存在（例如正文此前已被删除、仅前端残留卡片），
+        不再直接判失败，而是视为「已删除」，并继续清理可能残留的知识图谱、
+        快速续写状态等关联文件，最终返回成功。这样前端的残影卡片可一键清掉，
+        孤立的关联文件也会被顺手清理。
+        """
         try:
             novel_dir = os.path.join(self.novels_dir, novel_id)
-            if not os.path.exists(novel_dir):
-                print(f"小说目录不存在: {novel_dir}")
-                return False
-            
-            import shutil
-            shutil.rmtree(novel_dir)
-            print(f"已删除小说目录: {novel_dir}")
-            
-            # 删除知识图谱文件（如果存在）
-            knowledge_graphs = self.get_all_knowledge_graphs()
-            for kg in knowledge_graphs:
-                if kg.get("novel_id") == novel_id:
-                    kg_file = os.path.join(self.knowledge_graphs_dir, f"{kg['id']}.json")
-                    if os.path.exists(kg_file):
+            if os.path.exists(novel_dir):
+                import shutil
+                shutil.rmtree(novel_dir)
+                print(f"已删除小说目录: {novel_dir}")
+            else:
+                print(f"小说目录不存在，按已删除处理并清理残留: {novel_dir}")
+
+            # 删除该小说的全部知识图谱文件（按 novel_id 匹配，可能有多个）
+            if os.path.isdir(self.knowledge_graphs_dir):
+                for filename in os.listdir(self.knowledge_graphs_dir):
+                    if not filename.endswith(".json"):
+                        continue
+                    kg_file = os.path.join(self.knowledge_graphs_dir, filename)
+                    try:
+                        with open(kg_file, "r", encoding="utf-8") as f:
+                            kg = json.load(f)
+                    except Exception as e:
+                        print(f"读取知识图谱失败，跳过 {filename}: {e}")
+                        continue
+                    if kg.get("novel_id") == novel_id:
                         os.remove(kg_file)
                         print(f"已删除知识图谱文件: {kg_file}")
             
@@ -983,9 +1030,10 @@ class DataManager:
                 os.remove(quick_status_file)
                 print(f"已删除快速续写状态文件: {quick_status_file}")
             
+            self._invalidate_novel_list_cache()
             print(f"小说 {novel_id} 删除完成")
             return True
-            
+
         except Exception as e:
             print(f"删除小说失败: {e}")
             return False

@@ -1389,10 +1389,108 @@ const displayContinuationWorkflow = (continuationData) => {
     
     container.innerHTML = `
         ${novelInfoHtml}
+        <div class="card border-0 shadow-sm mb-4 overall-storyline-card" id="overall-storyline-card" style="display:none;">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center" style="cursor:pointer;" onclick="toggleOverallStorylineCard()">
+                <h6 class="mb-0">
+                    <i class="fas fa-book text-primary me-2"></i>全书总故事线
+                    <small class="text-muted ms-2">（创作模式设定，点击展开）</small>
+                </h6>
+                <i class="fas fa-chevron-down text-muted" id="overall-storyline-chevron"></i>
+            </div>
+            <div class="card-body" id="overall-storyline-body" style="display:none;">
+                <div class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>加载中...</div>
+            </div>
+        </div>
         <div class="workflow-steps">
             ${stepsHtml}
         </div>
     `;
+
+    // 续写模式常驻展示「全书总故事线」（来自创作模式的 storyline.json）
+    loadOverallStorylineIntoCard(AppState.currentNovelId);
+};
+
+// 折叠/展开「全书总故事线」卡片
+window.toggleOverallStorylineCard = function () {
+    const body = document.getElementById('overall-storyline-body');
+    const chevron = document.getElementById('overall-storyline-chevron');
+    if (!body) return;
+    const isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? 'block' : 'none';
+    if (chevron) {
+        chevron.classList.toggle('fa-chevron-down', !isHidden);
+        chevron.classList.toggle('fa-chevron-up', isHidden);
+    }
+};
+
+// 转义故事线文本，避免特殊字符破坏 HTML
+const escapeStorylineText = (value) => {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+};
+
+// 把一个故事线字段值（字符串/数组/对象）渲染成只读 HTML
+const renderStorylineValue = (value) => {
+    if (value === null || value === undefined || value === '') return '<span class="text-muted">未设置</span>';
+    if (Array.isArray(value)) {
+        return `<ul class="mb-0 ps-3">${value.map(item => `<li>${escapeStorylineText(item)}</li>`).join('')}</ul>`;
+    }
+    if (typeof value === 'object') {
+        return Object.entries(value)
+            .map(([k, v]) => `<div class="mb-1"><strong>${escapeStorylineText(k)}：</strong>${escapeStorylineText(typeof v === 'object' ? JSON.stringify(v) : v)}</div>`)
+            .join('');
+    }
+    return escapeStorylineText(value);
+};
+
+// 渲染「全书总故事线」卡片正文（只读）
+const renderOverallStorylineCard = (storyline) => {
+    const og = (storyline && storyline.overall_storyline) || {};
+    const section = (title, value) => `
+        <div class="storyline-section mb-3">
+            <h6 class="text-primary mb-1">${title}</h6>
+            <div>${renderStorylineValue(value)}</div>
+        </div>`;
+    const actBlock = (title, act) => {
+        if (!act || typeof act !== 'object') return '';
+        const rows = Object.entries(act)
+            .map(([k, v]) => `<div class="mb-1"><strong>${escapeStorylineText(k)}：</strong>${Array.isArray(v) ? renderStorylineValue(v) : escapeStorylineText(v)}</div>`)
+            .join('');
+        return `<div class="storyline-section mb-3"><h6 class="text-primary mb-1">${title}</h6>${rows}</div>`;
+    };
+    return `
+        ${section('主要目标', og.main_goal)}
+        ${section('核心冲突', og.core_conflict)}
+        ${section('世界观设定', og.world_setting)}
+        ${actBlock('第一幕', og.act1)}
+        ${actBlock('第二幕', og.act2)}
+        ${actBlock('第三幕', og.act3)}
+        ${section('故事主题', og.themes)}
+        ${section('故事基调', og.tone)}
+        ${section('目标受众', og.target_audience)}
+    `;
+};
+
+// 拉取并填充「全书总故事线」卡片；无数据则隐藏整张卡片
+const loadOverallStorylineIntoCard = async (novelId) => {
+    const card = document.getElementById('overall-storyline-card');
+    const body = document.getElementById('overall-storyline-body');
+    if (!card || !body || !novelId) return;
+    try {
+        const response = await Utils.apiRequest(`/novels/${novelId}/data/storyline`);
+        if (response.success && response.data && response.data.overall_storyline) {
+            body.innerHTML = renderOverallStorylineCard(response.data);
+            card.style.display = 'block';
+        } else {
+            card.style.display = 'none';
+        }
+    } catch (error) {
+        // 总故事线缺失或加载失败时，静默隐藏卡片，不影响续写主流程
+        card.style.display = 'none';
+    }
 };
 
 // 步骤详情管理
@@ -4030,27 +4128,51 @@ const TagManager = {
     
     // 添加标签
     addTag: (category, tag) => {
-        const categoryElement = document.querySelector(`[data-category="${category}"]`);
-        if (categoryElement) {
-            const tagList = categoryElement.querySelector('.tag-list');
-            const newTagElement = document.createElement('span');
-            newTagElement.className = 'tag';
-            newTagElement.setAttribute('data-category', category);
-            newTagElement.setAttribute('data-tag', tag);
-            newTagElement.innerHTML = `
-                ${tag}
-                <i class="fas fa-times tag-remove" onclick="removeTag('${category}', '${tag}')" style="display: ${TagManager.editMode ? 'inline-block' : 'none'};"></i>
-            `;
-            tagList.appendChild(newTagElement);
-            
-            // 记录修改
-            if (!TagManager.modifiedTags[category]) {
-                TagManager.modifiedTags[category] = [];
+        // 精确匹配分类容器（.tag-category），不要误命中带 data-category 的 .tag 元素
+        let categoryElement = document.querySelector(`.tag-category[data-category="${category}"]`);
+
+        // 该分类在页面上还没有容器（例如旧小说的 tags.json 生成早于「字数标签」分类）——自动补一行
+        if (!categoryElement) {
+            const tagsDisplay = document.getElementById('tags-display');
+            if (!tagsDisplay) {
+                Utils.showMessage('当前页面无法添加标签', 'warning');
+                return;
             }
-            TagManager.modifiedTags[category].push({ action: 'add', tag: tag });
-            
-            Utils.showMessage(`已添加标签: ${tag}`, 'success');
+            categoryElement = document.createElement('div');
+            categoryElement.className = 'tag-category';
+            categoryElement.setAttribute('data-category', category);
+            categoryElement.innerHTML = `<strong>${category}:</strong><div class="tag-list"></div>`;
+            tagsDisplay.appendChild(categoryElement);
         }
+
+        const tagList = categoryElement.querySelector('.tag-list');
+
+        // 字数标签强制单选：一本书只保留一个篇幅档位，新增即替换已有
+        if (category === '字数标签') {
+            tagList.querySelectorAll('.tag[data-category="字数标签"]').forEach(el => el.remove());
+        }
+
+        const newTagElement = document.createElement('span');
+        newTagElement.className = 'tag';
+        newTagElement.setAttribute('data-category', category);
+        newTagElement.setAttribute('data-tag', tag);
+        newTagElement.innerHTML = `
+            ${tag}
+            <i class="fas fa-times tag-remove" onclick="removeTag('${category}', '${tag}')" style="display: ${TagManager.editMode ? 'inline-block' : 'none'};"></i>
+        `;
+        tagList.appendChild(newTagElement);
+
+        // 记录修改
+        if (!TagManager.modifiedTags[category]) {
+            TagManager.modifiedTags[category] = [];
+        }
+        TagManager.modifiedTags[category].push({ action: 'add', tag: tag });
+
+        // 添加后亮出「保存标签修改」按钮，确保用户能把改动落盘
+        const saveBtn = document.getElementById('save-tags-btn');
+        if (saveBtn) saveBtn.style.display = 'inline-block';
+
+        Utils.showMessage(`已添加标签: ${tag}`, 'success');
     },
     
     // 获取修改后的标签数据

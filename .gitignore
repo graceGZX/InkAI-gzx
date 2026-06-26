@@ -65,6 +65,8 @@ Thumbs.db
 
 # 日志文件
 *.log
+# 运行时日志与 PID（scripts/ 启停脚本输出）
+logs/
 
 # 临时文件
 *.tmp

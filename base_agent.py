@@ -3,7 +3,7 @@
 """
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional
-from zhipuai import ZhipuAI
+from openai import OpenAI
 import json
 import config
 
@@ -13,7 +13,7 @@ class BaseAgent(ABC):
     
     def __init__(self, name: str):
         self.name = name
-        self.client = ZhipuAI(api_key=config.API_KEY)
+        self.client = OpenAI(api_key=config.API_KEY, base_url=config.BASE_URL)
         self.model = config.MODEL_NAME
         self.temperature = config.TEMPERATURE
     

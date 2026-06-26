@@ -53,13 +53,15 @@ class TagSelectorAgent(BaseAgent):
             "类型标签": ["推荐的类型标签"],
             "主题标签": ["推荐的主题标签"],
             "风格标签": ["推荐的风格标签"],
-            "受众标签": ["推荐的受众标签"]
+            "受众标签": ["推荐的受众标签"],
+            "字数标签": ["推荐的字数标签"]
         }}
-        
+
         推荐原则：
         1. 根据关键词匹配（如"侦探"→悬疑，"未来"→科幻）
         2. 考虑标签的兼容性
         3. 每个分类推荐1-5个最合适的标签
+        4. 字数标签只推荐1个：依据用户对篇幅/体量/章节数的描述选择对应档位；若无明确描述，默认推荐"长篇（30-80万字）"
         """
         
         messages = [
@@ -86,7 +88,8 @@ class TagSelectorAgent(BaseAgent):
             "类型标签": ["都市"],
             "主题标签": ["成长"],
             "风格标签": ["轻松愉快"],
-            "受众标签": ["全年龄"]
+            "受众标签": ["全年龄"],
+            "字数标签": ["长篇（30-80万字）"]
         }
     
     def _validate_and_fix_tags(self, tags: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -104,5 +107,9 @@ class TagSelectorAgent(BaseAgent):
             else:
                 # 如果没有该分类，使用默认值
                 valid_tags[category] = [tag_list[0]]
-        
+
+        # 字数标签强制单选：一本书只对应一个篇幅档位
+        if "字数标签" in valid_tags:
+            valid_tags["字数标签"] = valid_tags["字数标签"][:1]
+
         return valid_tags
