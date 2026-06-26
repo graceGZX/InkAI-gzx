@@ -1,0 +1,73 @@
+agents/tag_selector.py
+  s_1629674ce616a6::t_df117acc73d265 91-92
+  s_1629674ce616a6::t_e30c01cd2aad3b 110-114
+  s_1629674ce616a6::t_54679d868d4748 56-57,59,64
+scripts/stop.sh
+  s_6d60fba764d62a::t_60fdd4e6d3864f 1-29
+.gitignore
+  s_6d60fba764d62a::t_7f7ecddc246f7a 68-69
+frontend/app.js
+  s_1629674ce616a6::t_ce43fe8bb26b16 4133
+  s_1629674ce616a6::t_e12cb9c222d9ef 1392-1403,1408-1493
+  s_1629674ce616a6::t_1ddfcceb265bca 4131-4132,4134-4139,4141-4145,4147-4175
+scripts/start.sh
+  s_6d60fba764d62a::t_329778d581b9d0 17,29-30,33-34
+  s_6d60fba764d62a::t_ce16aeebd45eca 1-16,18-28,31-32
+data_manager.py
+  s_6d60fba764d62a::t_24f80a65eb8b9e 994-1000,1003-1009
+  s_6d60fba764d62a::t_0761626d659593 1010-1022
+  s_6d60fba764d62a::t_04c0084fc98143 20-25
+  s_6d60fba764d62a::t_d5732d358f55f2 55-56
+  s_6d60fba764d62a::t_10529974904dda 1033,1036
+  s_6d60fba764d62a::t_791f3850109466 269-295,308-312
+scripts/restart.sh
+  s_6d60fba764d62a::t_ff3ad382437131 1-10
+agents/storyline_generator.py
+  s_1629674ce616a6::t_28d6d1f0687e83 47,50,57
+  s_1629674ce616a6::t_3eef87e0a476ba 275-282
+discuss/2026-06-26-续写显示总故事线与字数标签-方案.md
+  s_1629674ce616a6::t_2bf272c257b9e1 68-69,73-75
+  s_1629674ce616a6::t_99242f8785dd4e 1-54,56-67,70-72,76-86,88-89,91-96
+  s_1629674ce616a6::t_5717b9f4707638 87,90
+  s_1629674ce616a6::t_6dddd34d75dd26 55
+config.py
+  s_1629674ce616a6::t_e0e9a7c13b8ba6 78-86,89-90
+  s_6d60fba764d62a::t_f601fc51cdd266 8
+  s_1629674ce616a6::t_59cc685ab5b272 27-28
+  s_6d60fba764d62a::t_ab625126b4bbf8 7
+  s_6d60fba764d62a::t_ec8e549f62cbb6 9-10
+base_agent.py
+  s_4a4f9d036b2d5d::t_5c634be849e787 6,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "f5cab53a56da66d69d0f81fe9ce38bc7392f0bac",
+  "prompts": {},
+  "sessions": {
+    "s_1629674ce616a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "445f2795-feb4-4c3a-b708-133ed5be5fa5",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    },
+    "s_4a4f9d036b2d5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8ef821e-56d0-4404-9807-36aabd9d97ca",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    },
+    "s_6d60fba764d62a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "950064e0-7af0-4faa-90ee-5805e5aea97b",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
