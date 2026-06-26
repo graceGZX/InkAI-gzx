@@ -1,0 +1,22 @@
+config.py
+  s_6d60fba764d62a::t_47580bd62c05df 40
+  s_6d60fba764d62a::t_b83d3c18435887 7-27,29-30
+.env.example
+  s_6d60fba764d62a::t_df0f14f5367b86 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "bb48a5354e8d4f4495c4ddb0b1ace16c28194953",
+  "prompts": {},
+  "sessions": {
+    "s_6d60fba764d62a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "950064e0-7af0-4faa-90ee-5805e5aea97b",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
