@@ -182,7 +182,9 @@ class QuickContinuationExecutor:
                 self._update_progress(progress)
             else:
                 progress.status = "failed"
-                progress.error_message = f"第{progress.current_chapter}章写作失败"
+                # 保留 _execute_single_chapter_continuation 中设置的具体错误信息
+                if not progress.error_message:
+                    progress.error_message = f"第{progress.current_chapter}章写作失败"
                 self._update_progress(progress)
                 return
         
@@ -403,14 +405,18 @@ class QuickContinuationExecutor:
                 return False
             
             # 验证章节是否真正保存成功
-            # 等待一小段时间确保文件写入完成
+            # 带重试的验证，避免文件系统延迟导致的误判
             import time
-            time.sleep(0.5)
-            
-            # 重新获取章节数，验证保存结果
-            new_chapter_count = self._get_current_chapter_count(progress.novel_id)
-            # 修复：获取保存前的章节数进行比较
+            max_verify_retries = 5
             expected_chapter_count = progress.current_chapter
+            new_chapter_count = 0
+            for retry in range(max_verify_retries):
+                time.sleep(0.3)
+                new_chapter_count = self._get_current_chapter_count(progress.novel_id)
+                if new_chapter_count >= expected_chapter_count:
+                    break
+                print(f"章节保存验证重试 {retry + 1}/{max_verify_retries}：期望{expected_chapter_count}，实际{new_chapter_count}")
+
             if new_chapter_count < expected_chapter_count:
                 progress.error_message = f"章节保存验证失败：期望章节数{expected_chapter_count}，实际章节数{new_chapter_count}"
                 self._update_progress(progress)

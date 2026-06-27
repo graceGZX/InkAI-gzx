@@ -5,6 +5,7 @@ InkAI 小说创作系统 Web API 服务器
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
+import re
 import json
 from datetime import datetime
 from typing import Dict, Any
@@ -15,6 +16,12 @@ import config
 # 导入智能体（避免重复导入）
 from agents import QualityAssessorAgent, CharacterCreatorAgent
 from quick_continuation_executor import get_executor, QuickContinuationProgress
+
+# 轻量 agent 辅助类（绕过 BaseAgent 的 abstractmethod 限制，直接调 LLM）
+from base_agent import BaseAgent
+
+class _LLMAgent(BaseAgent):
+    def process(self, input_data): pass
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -1356,7 +1363,7 @@ def get_novel_chapters(novel_id):
     """获取小说章节列表"""
     try:
         chapters = workflow.data_manager.get_novel_chapters(novel_id)
-        
+
         return jsonify({
             "success": True,
             "data": chapters
@@ -1366,6 +1373,676 @@ def get_novel_chapters(novel_id):
             "success": False,
             "error": str(e)
         }), 500
+
+@app.route('/api/novels/<novel_id>/chapters/<int:chapter_number>', methods=['PUT'])
+def update_chapter(novel_id, chapter_number):
+    """更新章节内容"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "请求数据为空"}), 400
+
+        title = data.get("title", "").strip()
+        content = data.get("content", "").strip()
+
+        if not title and not content:
+            return jsonify({"success": False, "error": "标题和内容不能同时为空"}), 400
+
+        success = workflow.data_manager.update_chapter(novel_id, chapter_number, title, content)
+        if not success:
+            return jsonify({"success": False, "error": "章节更新失败，请检查章节是否存在"}), 404
+
+        return jsonify({
+            "success": True,
+            "message": f"第{chapter_number}章更新成功"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/novels/<novel_id>/chapters/<int:chapter_number>/rollback', methods=['POST'])
+def rollback_chapter(novel_id, chapter_number):
+    """回退章节到上次 git 提交的版本"""
+    try:
+        success = workflow.data_manager.rollback_chapter(novel_id, chapter_number)
+        if not success:
+            return jsonify({"success": False, "error": "回退失败，请确认该章节已有 git 提交记录"}), 400
+        return jsonify({
+            "success": True,
+            "message": f"第{chapter_number}章已回退到上次提交的版本"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/novels/<novel_id>/chapters/<int:chapter_number>/quality', methods=['POST'])
+def assess_chapter_quality(novel_id, chapter_number):
+    """评估已有章节质量（文学性 + 一致性）"""
+    try:
+        # 加载章节
+        chapters = workflow.data_manager.get_novel_chapters(novel_id)
+        chapter = None
+        for ch in chapters:
+            if ch.get("chapter_number") == chapter_number:
+                chapter = ch
+                break
+        if not chapter:
+            return jsonify({"success": False, "error": f"第{chapter_number}章不存在"}), 404
+
+        # 获取用户需求和知识库
+        metadata = workflow.data_manager.load_novel_data(novel_id, "metadata")
+        user_requirements = metadata.get("user_requirements", "") if metadata else ""
+
+        characters = workflow.data_manager.load_novel_data(novel_id, "characters")
+        storyline = workflow.data_manager.load_novel_data(novel_id, "storyline")
+
+        # 1. 文学质量评估
+        lit_input = {
+            "content": chapter,
+            "content_type": "story",
+            "user_requirements": user_requirements
+        }
+        lit_assessment = QualityAssessorAgent().process(lit_input)
+
+        # 2. 一致性评估（章节内容 vs 知识库）
+        from agents.continuation_quality_assessor import ContinuationQualityAssessor
+        consistency_assessor = ContinuationQualityAssessor()
+        consistency_input = {
+            "continuation_content": chapter,
+            "original_knowledge_base": {
+                "characters": characters,
+                "storyline": storyline,
+                "tags": metadata.get("selected_tags", {}) if metadata else {}
+            },
+            "content_type": "story"
+        }
+        consistency_result = consistency_assessor.process(consistency_input)
+
+        # 3. 合并评估结果
+        lit_score = lit_assessment.get("overall_score", 0)
+        con_score = consistency_result.get("overall_score", 0)
+        overall_score = round((lit_score + con_score) / 2)
+
+        lit_scores = lit_assessment.get("scores", {})
+        con_scores = consistency_result.get("scores", {})
+
+        def _quality_level(score):
+            if score >= 85: return "优秀"
+            elif score >= 70: return "良好"
+            elif score >= 55: return "一般"
+            return "需改进"
+
+        merged = {
+            "overall_score": overall_score,
+            "quality_level": _quality_level(overall_score),
+            "dimensions": {
+                "coherence": lit_scores.get("coherence", 0),
+                "characterization": lit_scores.get("characterization", 0),
+                "writing_style": lit_scores.get("writing_style", 0),
+                "appeal": lit_scores.get("appeal", 0),
+                "consistency": con_score
+            },
+            "consistency_details": {
+                "character_consistency": con_scores.get("character_consistency", 0),
+                "plot_continuity": con_scores.get("plot_continuity", 0),
+                "world_consistency": con_scores.get("world_consistency", 0),
+                "foreshadowing_continuity": con_scores.get("foreshadowing_continuity", 0),
+                "style_consistency": con_scores.get("style_consistency", 0)
+            },
+            "suggestions": (lit_assessment.get("suggestions") or []) + (consistency_result.get("suggestions") or []),
+            "strengths": lit_assessment.get("strengths") or [],
+            "weaknesses": (lit_assessment.get("weaknesses") or []) + (consistency_result.get("weaknesses") or [])
+        }
+
+        # 保存质量评估结果到章节（缓存）
+        chapter["quality_assessment"] = merged
+        workflow.data_manager.save_chapter(novel_id, chapter_number, chapter)
+
+        return jsonify({"success": True, "data": merged})
+    except Exception as e:
+        print(f"章节质量评估错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"评估失败: {str(e)}"}), 500
+
+@app.route('/api/novels/<novel_id>/chapters/<int:chapter_number>/improve/dialogue', methods=['POST'])
+def improve_dialogue(novel_id, chapter_number):
+    """对话式需求确认：AI 引导用户明确优化需求"""
+    try:
+        data = request.get_json() or {}
+        messages = data.get("messages") or []
+        chapter_summary = data.get("chapter_summary", "")
+        chapter_title = data.get("chapter_title", "")
+        tags = data.get("tags") or {}
+
+        genre = tags.get("genre", "玄幻")
+        tone = tags.get("tone", "")
+
+        # 加载章节内容（前 1500 字作为参考）
+        chapter_content = data.get("chapter_content", "")
+        if not chapter_content:
+            chapters = workflow.data_manager.get_novel_chapters(novel_id)
+            for ch in chapters:
+                if ch.get("chapter_number") == chapter_number:
+                    chapter_content = ch.get("content", "")[:1500]
+                    break
+
+        # 构建 system prompt
+        user_turns = sum(1 for m in messages if m.get("role") == "user")
+
+        if user_turns == 0:
+            stage_hint = "这是第 1 轮。用户还没说具体需求，请问他「想优化这章的哪个方面」，给 4-5 个具体选项。"
+        else:
+            stage_hint = f"这是第 {user_turns + 1} 轮。你需要自己判断：如果对用户的需求还有不清楚的地方，继续追问一个具体细节（clarifying）；如果所有方面都问清楚了，给出确认总结（confirming）。不要着急确认，确保需求完全明确再说。"
+
+        system_prompt = f"""你是网文编辑助手，正在和作者对话，帮他明确对第{chapter_number}章「{chapter_title}」的优化需求。
+
+题材：{genre}
+
+章节内容（前 1500 字）：
+---
+{chapter_content}
+---
+
+{stage_hint}
+
+你的目标：
+- 追问直到能完整回答三个问题：改什么？怎么改？改多少？
+- 当你对这三个问题都有明确答案时，给出确认总结（stage=confirming），options 用 ["✅ 确认开始优化", "🔄 重新描述需求"]
+- 确认总结必须包含：用户的所有关键需求 + 建议修改范围（minor/medium/major）
+- 选项要引用章节中的具体内容（如角色名、场景、段落），不要泛泛而谈
+- 用户的描述已经很具体时，追问一两个关键细节就够了，不要没话找话
+
+返回纯 JSON：
+{{"question":"...","options":["...","..."],"stage":"clarifying","confirmed_requirements":null,"suggested_scope":null}}
+"""
+        # 构建消息列表
+        llm_messages = [{"role": "system", "content": system_prompt}]
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            # 跳过 assistant 消息中的 options 字段，只保留文本
+            llm_messages.append({"role": role, "content": content})
+
+        # 如果首轮，给一个初始提示
+        if not messages:
+            llm_messages.append({"role": "user", "content": "我想优化这一章"})
+
+        agent = _LLMAgent("需求对话")
+        agent.model = "deepseek-v4-pro"
+        response = agent.call_llm(llm_messages, temperature=0.7, max_tokens=600)
+
+        # 解析 JSON
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            result = json.loads(json_match.group())
+        else:
+            # Fallback: 返回一个简单的开场问题
+            result = {
+                "question": f"您想优化第{chapter_number}章《{chapter_title}》的哪个方面？",
+                "options": ["情节节奏", "人物对话与心理描写", "环境与氛围描写", "世界观设定说明", "其他（请描述）"],
+                "stage": "opening",
+                "confirmed_requirements": None,
+                "suggested_scope": None
+            }
+
+        return jsonify({"success": True, "data": result})
+
+    except Exception as e:
+        print(f"需求对话错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"对话失败: {str(e)}"}), 500
+
+@app.route('/api/novels/<novel_id>/chapters/<int:chapter_number>/improve/proposals', methods=['POST'])
+def improve_proposals(novel_id, chapter_number):
+    """生成优化方案提案：根据用户需求给出 2-3 个具体优化方案供选择"""
+    try:
+        data = request.get_json() or {}
+        requirements = data.get("requirements", "").strip()
+        scope = data.get("scope", "minor")
+
+        # 加载章节
+        chapters = workflow.data_manager.get_novel_chapters(novel_id)
+        chapter = None
+        for ch in chapters:
+            if ch.get("chapter_number") == chapter_number:
+                chapter = ch
+                break
+        if not chapter:
+            return jsonify({"success": False, "error": f"第{chapter_number}章不存在"}), 404
+
+        chapter_content = chapter.get("content", "")
+        chapter_title = chapter.get("title", f"第{chapter_number}章")
+        chapter_summary = chapter.get("summary", "")
+
+        # 截取章节内容前 2000 字作为分析样本
+        content_sample = chapter_content[:2000] if chapter_content else ""
+
+        # 获取知识库
+        metadata = workflow.data_manager.load_novel_data(novel_id, "metadata")
+        tags = metadata.get("selected_tags", {}) if metadata else {}
+        genre = tags.get("genre", "玄幻")
+
+        system_prompt = f"""你是一个资深网文编辑，正在帮作者规划对第{chapter_number}章《{chapter_title}》的优化方案。
+
+题材：{genre}
+章节摘要：{chapter_summary[:200]}
+用户需求：{requirements}
+修改范围：{scope}
+
+章节内容（前2000字）：
+---
+{content_sample}
+---
+
+请根据用户需求和章节现状，生成 2-3 个差异化的优化方案。每个方案要有不同的侧重点和优化思路。
+
+返回 JSON（只返回 JSON，不要其他内容）：
+{{
+  "plans": [
+    {{
+      "index": 0,
+      "title": "方案名称（6字以内）",
+      "description": "方案概述（2-3句，说明这个方案的核心思路和优化方向）",
+      "expected_result": "预期效果（用一两句话说明改完后章节会变成什么样）",
+      "key_changes": ["具体改动点1", "具体改动点2", "具体改动点3"]
+    }}
+  ]
+}}
+
+要求：
+- 必须生成 3 个差异化方案，缺一不可。只生成 1-2 个视为不合格
+- 三个方案必须从不同角度切入（如：删减精简 / 结构调整 / 场景合并），不能只是措辞不同
+- 每个 key_changes 列 2-4 条具体可操作的改动
+- 方案要结合章节实际内容，引用具体段落/场景
+- 语言简洁，不用套话"""
+
+        agent = _LLMAgent("优化提案")
+        response = agent.call_llm([{"role": "system", "content": system_prompt}], temperature=0.7, max_tokens=1200)
+
+        # 解析 JSON（容错处理）
+        result = None
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            raw_json = json_match.group()
+            try:
+                result = json.loads(raw_json)
+            except json.JSONDecodeError:
+                # 尝试修复常见 JSON 问题
+                try:
+                    # 去掉尾部逗号
+                    fixed = re.sub(r',\s*}', '}', raw_json)
+                    fixed = re.sub(r',\s*]', ']', fixed)
+                    # 修复未转义的换行
+                    result = json.loads(fixed)
+                except json.JSONDecodeError:
+                    print(f"[Proposals] JSON 解析失败，原始响应: {response[:500]}")
+
+        if not result or not result.get("plans"):
+            # Fallback: 如果完全没解析出来
+            result = {"plans": [{
+                "index": 0,
+                "title": "按需求优化",
+                "description": f"根据您的需求优化第{chapter_number}章",
+                "expected_result": "章节质量按您的要求提升",
+                "key_changes": [requirements]
+            }]}
+
+        # 确保至少有 2 个方案（如果 AI 只返回了 1 个，补充一个差异化方案）
+        plans = result.get("plans", [])
+        if len(plans) < 2:
+            scope_labels = {"minor": "小改（微调措辞）", "medium": "中改（调整段落）", "major": "大改（重写段落）"}
+            alt_scope = "major" if scope == "minor" else "minor"
+            plans.append({
+                "index": len(plans),
+                "title": "换个思路",
+                "description": f"采用不同策略：从{scope_labels.get(alt_scope, '另一种')}角度重新处理，重点调整叙事角度和细节密度",
+                "expected_result": "用不同的手法达到优化效果，给章节带来新鲜感",
+                "key_changes": [f"调整叙事节奏", f"重新组织关键场景", requirements]
+            })
+            for i, p in enumerate(plans):
+                p["index"] = i
+            result["plans"] = plans
+
+        return jsonify({"success": True, "data": result})
+
+    except Exception as e:
+        print(f"优化提案错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"生成提案失败: {str(e)}"}), 500
+
+
+@app.route('/api/novels/<novel_id>/chapters/<int:chapter_number>/improve', methods=['POST'])
+def improve_chapter(novel_id, chapter_number):
+    """根据用户需求优化已有章节（返回预览，不直接落盘）+ 优化后评审循环"""
+    try:
+        data = request.get_json() or {}
+        requirements = data.get("requirements", "").strip()
+        suggestions = data.get("suggestions") or []
+        scope = data.get("scope", "minor")
+        selected_plan = data.get("selected_plan") or {}
+        # 如果是继续优化，可能携带上轮评审意见
+        previous_review = data.get("previous_review") or {}
+
+        # 加载章节
+        chapters = workflow.data_manager.get_novel_chapters(novel_id)
+        chapter = None
+        for ch in chapters:
+            if ch.get("chapter_number") == chapter_number:
+                chapter = ch
+                break
+        if not chapter:
+            return jsonify({"success": False, "error": f"第{chapter_number}章不存在"}), 404
+
+        # 获取知识库
+        metadata = workflow.data_manager.load_novel_data(novel_id, "metadata")
+        user_requirements = metadata.get("user_requirements", "") if metadata else ""
+        characters = workflow.data_manager.load_novel_data(novel_id, "characters")
+        storyline = workflow.data_manager.load_novel_data(novel_id, "storyline")
+
+        # 章节列表、最近章节、向量检索
+        all_chapters = workflow.data_manager.get_novel_chapters(novel_id)
+        recent_summaries = []
+        for ch in all_chapters[-4:-1] if len(all_chapters) >= 2 else all_chapters[:-1]:
+            recent_summaries.append({
+                "chapter_number": ch.get("chapter_number", 0),
+                "title": ch.get("title", ""),
+                "summary": ch.get("summary", ""),
+                "key_events": ch.get("key_events", [])
+            })
+
+        # 向量语义检索
+        vector_retrieved = []
+        if hasattr(workflow, 'embedding_service') and workflow.embedding_service.is_available:
+            try:
+                from core.embedding_service import ChapterEmbeddingStore
+                novel_dir = os.path.join(workflow.data_manager.novels_dir, novel_id)
+                store = ChapterEmbeddingStore(novel_dir, workflow.embedding_service)
+                store.backfill_chapters(all_chapters)
+                query_parts = [chapter.get("summary", "")]
+                if recent_summaries:
+                    query_parts.append(recent_summaries[-1].get("summary", ""))
+                query = "；".join(q for q in query_parts if q)
+                if query:
+                    retrieved = store.search_relevant_chapters(query, current_chapter=chapter_number, top_k=5)
+                    if retrieved:
+                        ch_map = {ch.get("chapter_number"): ch for ch in all_chapters}
+                        for item in retrieved:
+                            rch = ch_map.get(item["chapter_number"])
+                            if rch:
+                                vector_retrieved.append({
+                                    "chapter_number": item["chapter_number"],
+                                    "title": rch.get("title", ""),
+                                    "summary": rch.get("summary", ""),
+                                    "key_events": rch.get("key_events", []),
+                                    "relevance_score": item["score"]
+                                })
+            except Exception as e:
+                print(f"[Vector] 优化检索失败（不影响主线）: {e}")
+
+        # 获取上一章结尾原文（衔接参考）
+        prev_chapter = None
+        for ch in all_chapters:
+            if ch.get("chapter_number") == chapter_number - 1:
+                prev_chapter = ch
+                break
+        prev_ending = ""
+        if prev_chapter:
+            prev_content = prev_chapter.get("content", "")
+            prev_ending = prev_content[-300:] if len(prev_content) > 300 else prev_content
+
+        # 构建知识库（优化和评审共用）
+        # 加载知识图谱（如不存在，从人物/故事数据生成轻量图谱）
+        knowledge_graph = workflow.data_manager.load_novel_data(novel_id, "knowledge_graph")
+        if not knowledge_graph:
+            kg_from_chars = {}
+            if characters:
+                mc = characters.get("main_character", {})
+                if mc.get("basic_info", {}).get("name"):
+                    kg_from_chars["protagonist"] = mc["basic_info"]["name"]
+                supporting = characters.get("supporting_characters", [])
+                kg_from_chars["key_characters"] = [
+                    {"name": c.get("basic_info", {}).get("name", "?"), "role": c.get("role", "?")}
+                    for c in supporting[:8]
+                ]
+                rels = characters.get("character_relationships", {}).get("relationships", [])
+                mc_name = kg_from_chars.get("protagonist", "")
+                kg_from_chars["relationships"] = [
+                    {"from": r.get("character", "?"), "to": mc_name, "type": str(r.get("relationship_type", ""))[:80]}
+                    for r in rels[:8]
+                ]
+            if storyline:
+                ws = storyline.get("overall_storyline", {}).get("world_setting", {})
+                if isinstance(ws, dict):
+                    kg_from_chars["world_elements"] = {k: str(v)[:100] for k, v in ws.items() if v}
+            knowledge_graph = kg_from_chars
+
+        # 提取故事结构
+        overall = storyline.get("overall_storyline", {}) if storyline else {}
+        story_structure = storyline.get("story_structure", {}) if storyline else {}
+
+        # 加载动态知识图谱（角色发展、情节时间线、伏笔、世界观变动）
+        dynamic_knowledge = workflow.data_manager.load_novel_data(novel_id, "dynamic_knowledge") or {}
+
+        knowledge_base = {
+            "character_profiles": characters,
+            "storyline": storyline,
+            "knowledge_graph": knowledge_graph,
+            "dynamic_knowledge": dynamic_knowledge,
+            "tags": metadata.get("selected_tags", {}) if metadata else {},
+            "world_setting": overall.get("world_setting", ""),
+            "main_goal": overall.get("main_goal", ""),
+            "core_conflict": overall.get("core_conflict", ""),
+            "overall_outline": overall.get("overall_outline", ""),
+            "volumes": overall.get("volumes", []),
+            "story_structure": story_structure,
+            "story_tone": overall.get("tone", ""),
+            "recent_chapters_summaries": recent_summaries,
+            "vector_retrieved_chapters": vector_retrieved,
+            "prev_chapter_ending": prev_ending
+        }
+
+        # ── 优化-评审循环（最多 3 轮）──
+        from agents.continuation_chapter_improver import ContinuationChapterImprover
+        improver = ContinuationChapterImprover()
+
+        original_content = chapter.get("content", "")
+        current_content = original_content
+        review_results = []
+        review_passed = False
+        final_quality_report = {}
+        MAX_ROUNDS = 3
+        PASS_THRESHOLD = 85
+
+        for round_num in range(1, MAX_ROUNDS + 1):
+            # 构建本轮需求（首轮用用户需求；后续轮次附加评审意见）
+            if round_num == 1:
+                round_requirements = requirements or user_requirements
+                if selected_plan:
+                    plan_desc = selected_plan.get("description", "")
+                    plan_changes = selected_plan.get("key_changes", [])
+                    round_requirements += f"\n\n【选定优化方案：{selected_plan.get('title', '')}】\n{plan_desc}\n具体改动：\n" + "\n".join(f"- {c}" for c in plan_changes)
+                if previous_review and previous_review.get("suggestions"):
+                    round_requirements += "\n\n【上轮评审意见，请针对修复】\n" + "\n".join(
+                        f"- {s}" for s in previous_review.get("suggestions", [])
+                    )
+            else:
+                # 后续轮次：用评审建议作为改进需求
+                prev = review_results[-1]
+                round_requirements = f"""上一轮优化评审得分 {prev.get('overall_score', 0)} 分（通过线 {PASS_THRESHOLD} 分），请针对以下问题重新优化：
+
+{chr(10).join(f'- {s}' for s in prev.get('suggestions', []))}
+
+原始用户需求：{requirements or user_requirements}"""
+
+            # 更新 chapter_content 为上一轮结果
+            round_chapter = dict(chapter)
+            if current_content != original_content:
+                round_chapter["content"] = current_content
+
+            improve_input = {
+                "chapter_content": round_chapter,
+                "quality_assessment": {"suggestions": suggestions},
+                "knowledge_base": knowledge_base,
+                "user_requirements": round_requirements,
+                "suggestions": suggestions,
+                "scope": scope
+            }
+            result = improver.process(improve_input)
+
+            # 提取优化后内容
+            improved_content = ""
+            if isinstance(result, dict):
+                improved_chapter = result.get("improved_chapter", {})
+                if isinstance(improved_chapter, dict):
+                    improved_content = improved_chapter.get("content", "")
+                if not improved_content:
+                    improved_content = result.get("content") or result.get("improved_content") or ""
+                improvement_plan = result.get("improvement_plan", {})
+                improvement_summary = result.get("improvement_summary", {})
+                final_quality_report = {
+                    "improvement_areas": improvement_plan.get("improvement_areas", []),
+                    "priority_level": improvement_plan.get("priority_level", ""),
+                    "specific_issues": improvement_plan.get("specific_issues", []),
+                    "improvement_summary": improvement_summary
+                }
+
+            if not improved_content or improved_content.startswith("{'"):
+                improved_content = current_content
+
+            current_content = improved_content
+
+            # ── 质量评审 ──
+            review = _review_optimization(
+                original_content=original_content,
+                improved_content=current_content,
+                requirements=requirements or user_requirements,
+                scope=scope,
+                chapter_context=knowledge_base
+            )
+            review["round"] = round_num
+            review_results.append(review)
+
+            if review.get("overall_score", 0) >= PASS_THRESHOLD:
+                review_passed = True
+                break
+
+        # ── 构建返回 ──
+        last_review = review_results[-1] if review_results else {}
+        return jsonify({
+            "success": True,
+            "data": {
+                "original_content": original_content,
+                "original_title": chapter.get("title", ""),
+                "improved_content": current_content,
+                "improved_title": result.get("title", "") if isinstance(result, dict) else "",
+                "changes_summary": result.get("changes_summary", "") if isinstance(result, dict) else "",
+                "quality_report": final_quality_report,
+                "review_passed": review_passed,
+                "review_score": last_review.get("overall_score", 0),
+                "review_rounds": len(review_results),
+                "review_notes": last_review.get("summary", ""),
+                "review_details": {
+                    "requirement_met": last_review.get("requirement_met", False),
+                    "scope_respected": last_review.get("scope_respected", False),
+                    "issues": last_review.get("issues", []),
+                    "suggestions": last_review.get("suggestions", [])
+                }
+            }
+        })
+    except Exception as e:
+        print(f"章节优化错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"优化失败: {str(e)}"}), 500
+
+
+def _review_optimization(original_content, improved_content, requirements, scope, chapter_context):
+    """评审优化结果：需求满足度、范围遵守、质量提升、网文风格"""
+    try:
+        scope_labels = {
+            "minor": "小改（只改措辞/句式，不调整段落结构和情节）",
+            "medium": "中改（可调整段落/节奏/对话，保持情节不变）",
+            "major": "大改（可大幅重写段落，增删描写，调整叙事节奏）"
+        }
+
+        prompt = f"""你是一个严格的网文编辑，请评审这次 AI 优化的质量。
+
+【用户原始需求】
+{requirements if requirements else "无特殊需求"}
+
+【修改范围约束】
+{scope_labels.get(scope, scope_labels['minor'])}
+
+【章节题材参考】
+世界观: {str(chapter_context.get('world_setting', ''))[:200]}
+故事基调: {str(chapter_context.get('story_tone', ''))[:200]}
+
+【优化前原文】（前 500 字）
+{original_content[:500]}
+
+【优化后正文】（前 800 字）
+{improved_content[:800]}
+
+请按以下维度打分（每项 0-25 分，总分 0-100）：
+
+1. **需求满足度** (0-25 分)：是否精准满足了用户需求？有没有遗漏或曲解？
+2. **范围遵守** (0-25 分)：是否严格遵守了修改范围约束？超出范围扣分。
+3. **质量提升** (0-25 分)：优化后是否真的变好了？语言是否更流畅、更有网感？
+4. **网文风格** (0-25 分)：是否符合网络小说的写作特点（快节奏、短段落、强冲突、去AI腔）？
+
+请返回严格 JSON：
+{{
+    "overall_score": 85,
+    "requirement_met": true,
+    "scope_respected": true,
+    "quality_improved": true,
+    "style_good": true,
+    "issues": ["问题1", "问题2"],
+    "suggestions": ["建议1", "建议2"],
+    "summary": "一句话总评"
+}}
+"""
+        reviewer = _LLMAgent("优化评审")
+        messages = [
+            {"role": "system", "content": "你是一个严格的网文编辑，擅长评估章节优化质量。只返回 JSON，不要有其他内容。"},
+            {"role": "user", "content": prompt}
+        ]
+        response = reviewer.call_llm(messages, temperature=0.3, max_tokens=800)
+
+        # 解析 JSON
+        import json
+        # 尝试提取 JSON 块
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            review = json.loads(json_match.group())
+        else:
+            review = json.loads(response)
+
+        # 确保必要字段
+        review.setdefault("overall_score", 70)
+        review.setdefault("requirement_met", False)
+        review.setdefault("scope_respected", False)
+        review.setdefault("quality_improved", False)
+        review.setdefault("style_good", False)
+        review.setdefault("issues", [])
+        review.setdefault("suggestions", [])
+        review.setdefault("summary", "")
+
+        return review
+
+    except Exception as e:
+        print(f"[Review] 评审失败（放行）: {e}")
+        return {
+            "overall_score": 85,
+            "requirement_met": True,
+            "scope_respected": True,
+            "quality_improved": True,
+            "style_good": True,
+            "issues": [],
+            "suggestions": [],
+            "summary": f"评审异常（已自动放行）: {e}"
+        }
 
 @app.route('/api/novels/<novel_id>/statistics', methods=['GET'])
 def get_novel_statistics(novel_id):

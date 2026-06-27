@@ -94,7 +94,8 @@ class DataManager:
             print(f"加载数据失败: {e}")
             return None
     
-    def save_chapter(self, novel_id: str, chapter_number: int, chapter_content: Dict[str, Any]) -> bool:
+    def save_chapter(self, novel_id: str, chapter_number: int, chapter_content: Dict[str, Any],
+                     auto_commit: bool = True) -> bool:
         """保存章节内容"""
         try:
             novel_dir = os.path.join(self.novels_dir, novel_id)
@@ -117,32 +118,96 @@ class DataManager:
             if 'created_at' not in chapter_content:
                 chapter_content['created_at'] = datetime.now().isoformat()
             
-            # 保存章节JSON文件
+            # 保存章节JSON文件（先写临时文件再 rename，保证原子性）
             chapter_file = os.path.join(novel_dir, f"chapter_{chapter_number:03d}.json")
-            with open(chapter_file, 'w', encoding='utf-8') as f:
+            tmp_file = chapter_file + ".tmp"
+            with open(tmp_file, 'w', encoding='utf-8') as f:
                 json.dump(chapter_content, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp_file, chapter_file)
             print(f"章节JSON文件保存成功: {chapter_file}")
-            
+
             # 保存章节TXT文件
-            txt_file = self.save_chapter_txt(novel_id, chapter_number, chapter_content)
+            txt_file = self.save_chapter_txt(novel_id, chapter_number, chapter_content, auto_commit=auto_commit)
             if not txt_file:
-                print(f"章节TXT文件保存失败")
+                print(f"章节TXT文件保存失败，回滚JSON文件")
+                os.remove(chapter_file)
                 return False
             print(f"章节TXT文件保存成功: {txt_file}")
-            
+
             # 更新元数据中的章节列表
             metadata_success = self._update_chapter_list(novel_id, chapter_number, chapter_content)
             if not metadata_success:
-                print(f"元数据更新失败")
+                print(f"元数据更新失败，回滚已保存的文件")
+                os.remove(chapter_file)
+                txt_path = os.path.join(novel_dir, "chapters", f"chapter_{chapter_number:03d}.txt")
+                if os.path.exists(txt_path):
+                    os.remove(txt_path)
                 return False
-            
+
             print(f"章节{chapter_number}保存完全成功")
+            # 自动 git 提交
+            if auto_commit:
+                ch_title = chapter_content.get("title", "")
+                self.commit_chapter(novel_id, chapter_number, title=ch_title)
             return True
-            
+
         except Exception as e:
             print(f"保存章节失败: {e}")
             return False
-    
+
+    def update_chapter(self, novel_id: str, chapter_number: int, title: str = "", content: str = "") -> bool:
+        """更新已有章节的标题和/或内容"""
+        try:
+            novel_dir = os.path.join(self.novels_dir, novel_id)
+            chapter_file = os.path.join(novel_dir, f"chapter_{chapter_number:03d}.json")
+            if not os.path.exists(chapter_file):
+                print(f"章节文件不存在: {chapter_file}")
+                return False
+
+            with open(chapter_file, 'r', encoding='utf-8') as f:
+                chapter_data = json.load(f)
+
+            if title:
+                chapter_data["title"] = title
+            if content:
+                chapter_data["content"] = content
+                chapter_data["word_count"] = len(content)
+
+            chapter_data["updated_at"] = datetime.now().isoformat()
+
+            # 重新保存 JSON
+            tmp_file = chapter_file + ".tmp"
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(chapter_data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp_file, chapter_file)
+            print(f"章节JSON更新成功: {chapter_file}")
+
+            # 重新保存 TXT
+            txt_dir = os.path.join(novel_dir, "chapters")
+            os.makedirs(txt_dir, exist_ok=True)
+            txt_file = os.path.join(txt_dir, f"chapter_{chapter_number:03d}.txt")
+            with open(txt_file, 'w', encoding='utf-8') as f:
+                f.write(f"{chapter_data.get('title', '')}\n")
+                f.write("=" * len(chapter_data.get('title', '')) + "\n\n")
+                f.write(chapter_data.get('content', ''))
+            print(f"章节TXT更新成功: {txt_file}")
+
+            # 更新 metadata
+            self._update_chapter_list(novel_id, chapter_number, chapter_data)
+
+            print(f"章节{chapter_number}更新完成")
+            # 自动 git 提交
+            self.commit_chapter(novel_id, chapter_number, title=chapter_data.get("title", ""))
+            return True
+
+        except Exception as e:
+            print(f"更新章节失败: {e}")
+            return False
+
     def get_chapters(self, novel_id: str) -> List[Dict[str, Any]]:
         """获取小说的所有章节"""
         try:
@@ -170,28 +235,33 @@ class DataManager:
             print(f"获取章节列表失败: {e}")
             return []
     
-    def save_chapter_txt(self, novel_id: str, chapter_number: int, chapter_content: Dict[str, Any]) -> str:
+    def save_chapter_txt(self, novel_id: str, chapter_number: int, chapter_content: Dict[str, Any],
+                         auto_commit: bool = True) -> str:
         """保存章节为TXT文件"""
         try:
             novel_dir = os.path.join(self.novels_dir, novel_id)
             if not os.path.exists(novel_dir):
                 return ""
-            
+
             # 创建章节文件夹
             chapters_dir = os.path.join(novel_dir, "chapters")
             os.makedirs(chapters_dir, exist_ok=True)
-            
+
             # 获取章节标题和内容
             title = chapter_content.get("title", f"第{chapter_number}章")
             content = chapter_content.get("content", "")
-            
+
             # 保存TXT文件
             txt_file = os.path.join(chapters_dir, f"chapter_{chapter_number:03d}.txt")
             with open(txt_file, 'w', encoding='utf-8') as f:
                 f.write(f"{title}\n")
                 f.write("=" * len(title) + "\n\n")
                 f.write(content)
-            
+
+            # 自动 Git 提交
+            if auto_commit:
+                self.commit_chapter(novel_id, chapter_number, title=title)
+
             return txt_file
         except Exception as e:
             print(f"保存章节TXT文件失败: {e}")
@@ -1071,3 +1141,101 @@ class DataManager:
         except Exception as e:
             print(f"更新元数据失败: {e}")
             return False
+
+    # ==================== Git 版本控制 ====================
+
+    def _git_repo_root(self) -> str:
+        """获取 git 仓库根目录（即 DATA_DIR = InkAI-Books）"""
+        return config.DATA_DIR
+
+    def _git_commit(self, file_paths: List[str], message: str) -> bool:
+        """本地 git add + commit，静默执行，失败不抛异常"""
+        import subprocess
+        repo = self._git_repo_root()
+        try:
+            add_result = subprocess.run(
+                ["git", "-C", repo, "add"] + file_paths,
+                capture_output=True, text=True, timeout=30
+            )
+            commit_result = subprocess.run(
+                ["git", "-C", repo, "commit", "-m", message],
+                capture_output=True, text=True, timeout=30
+            )
+            if commit_result.returncode == 0:
+                print(f"Git 提交成功: {message}")
+                return True
+            else:
+                # 可能 nothing to commit
+                if "nothing to commit" in commit_result.stdout or "nothing to commit" in commit_result.stderr:
+                    print(f"Git: 无变更，跳过提交")
+                else:
+                    print(f"Git 提交失败: {commit_result.stderr.strip()}")
+                return False
+        except Exception as e:
+            print(f"Git 操作异常: {e}")
+            return False
+
+    def commit_chapter(self, novel_id: str, chapter_number: int, title: str = "") -> bool:
+        """自动提交章节变更到本地 git"""
+        novel_dir = os.path.join(self.novels_dir, novel_id)
+        novel_name = self._get_novel_name(novel_id)
+        file_paths = [
+            os.path.join(novel_dir, f"chapter_{chapter_number:03d}.json"),
+            os.path.join(novel_dir, "chapters", f"chapter_{chapter_number:03d}.txt"),
+            os.path.join(novel_dir, "metadata.json"),
+        ]
+        # 只添加存在的文件
+        existing = [p for p in file_paths if os.path.exists(p)]
+        if not existing:
+            return False
+        msg = f"save: {novel_name} 第{chapter_number}章" + (f" - {title}" if title else "")
+        return self._git_commit(existing, msg)
+
+    def rollback_chapter(self, novel_id: str, chapter_number: int) -> bool:
+        """回退章节到上一次 git 提交的版本"""
+        import subprocess
+        repo = self._git_repo_root()
+        novel_dir = os.path.join(self.novels_dir, novel_id)
+        try:
+            file_paths = [
+                os.path.join(novel_dir, f"chapter_{chapter_number:03d}.json"),
+                os.path.join(novel_dir, "chapters", f"chapter_{chapter_number:03d}.txt"),
+            ]
+            # git checkout 回退到 HEAD 版本
+            result = subprocess.run(
+                ["git", "-C", repo, "checkout", "HEAD", "--"] + file_paths,
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                print(f"回退失败: {result.stderr.strip()}")
+                return False
+            print(f"第{chapter_number}章已回退到上次提交")
+            # 重新同步 metadata 中的章节信息（word_count 等可能变了）
+            self._sync_chapter_metadata(novel_id, chapter_number)
+            return True
+        except Exception as e:
+            print(f"回退章节异常: {e}")
+            return False
+
+    def _get_novel_name(self, novel_id: str) -> str:
+        """获取小说名称（用于 commit message）"""
+        try:
+            meta = self._load_novel_metadata(novel_id)
+            if meta:
+                return meta.get("title", novel_id[:8])
+        except Exception:
+            pass
+        return novel_id[:8]
+
+    def _sync_chapter_metadata(self, novel_id: str, chapter_number: int) -> None:
+        """回退后同步元数据中的章节信息"""
+        try:
+            novel_dir = os.path.join(self.novels_dir, novel_id)
+            chapter_file = os.path.join(novel_dir, f"chapter_{chapter_number:03d}.json")
+            if not os.path.exists(chapter_file):
+                return
+            with open(chapter_file, 'r', encoding='utf-8') as f:
+                chapter_data = json.load(f)
+            self._update_chapter_list(novel_id, chapter_number, chapter_data)
+        except Exception as e:
+            print(f"同步章节元数据失败: {e}")

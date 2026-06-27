@@ -46,30 +46,44 @@ class ContinuationChapterWriter(BaseAgent):
             story_tone = knowledge_base.get("story_tone", "")
             tags = knowledge_base.get("tags", {})
             last_chapter = knowledge_base.get("last_chapter_summary", {})
-            
+            recent_chapters = knowledge_base.get("recent_chapters_summaries", [])
+            vector_chapters = knowledge_base.get("vector_retrieved_chapters", [])
+
             # 构建写作提示
             prompt = f"""
             请根据以下信息续写小说《{novel_info.get('title', '未知标题')}》的第{storyline.get('chapter_number', 1)}章。
-            
+
             原文设定：
             1. 世界观：{world_setting}
             2. 故事基调：{story_tone}
             3. 故事标签：{self._format_tags(tags)}
-            
+
             4. 人物档案：
             {self._format_character_profiles(character_profiles)}
-            
-            5. 上一章结尾：
+
+            5. 最近几章剧情回顾（请仔细阅读，确保不重复已写过的场景和情节）：
+            {self._format_recent_chapters(recent_chapters)}
+
+            6. 语义关联的历史章节（与当前剧情相关，请检查伏笔和前后呼应）：
+            {self._format_vector_chapters(vector_chapters)}
+
+            7. 动态知识（角色发展轨迹/情节时间线/活跃伏笔/世界观变化——确保写新章时不矛盾）：
+            {self._format_dynamic_knowledge(knowledge_base)}
+
+            9. 上一章结尾：
             {self._format_last_chapter(last_chapter)}
-            
-            6. 本章故事线：
+
+            10. 上一章最后段落（必须从此处无缝衔接，不得跳场景）：
+            {self._format_ending_text(last_chapter)}
+
+            11. 本章故事线：
             {self._format_storyline(storyline)}
-            
-            7. 用户要求：{user_requirements if user_requirements else "无特殊要求"}
-            
+
+            12. 用户要求：{user_requirements if user_requirements else "无特殊要求"}
+
             写作要求：
-            1. 严格保持与原文的一致性（人物性格、世界观、语言风格）
-            2. 合理承接上一章的情节发展
+            1. 【最重要】开篇第一段必须从上一章结尾的场景/情绪/时间直接过渡，不得跳转。如果上一章结尾是夜晚，本章开头必须是同一个夜晚或次日清晨，不得直接跳到另一个地点
+            2. 严格保持与原文的一致性（人物性格、世界观、语言风格）
             3. 按照故事线推进情节
             4. 保持原文的写作风格和基调
             5. 设置适当的伏笔和悬念
@@ -249,6 +263,54 @@ class ContinuationChapterWriter(BaseAgent):
         
         return formatted
     
+    def _format_vector_chapters(self, vector_chapters: list) -> str:
+        """格式化向量检索到的历史相关章节"""
+        if not vector_chapters:
+            return "无语义关联章节"
+
+        formatted = ""
+        for ch in vector_chapters:
+            num = ch.get("chapter_number", 0)
+            title = ch.get("title", "未知标题")
+            summary = ch.get("summary", "无概要")
+            score = ch.get("relevance_score", 0)
+            key_events = ch.get("key_events", [])
+            formatted += f"第{num}章《{title}》（相关度: {score}）\n"
+            formatted += f"  概要：{summary}\n"
+            if key_events:
+                formatted += f"  关键事件：\n"
+                for ev in key_events:
+                    formatted += f"    - {ev}\n"
+            formatted += "\n"
+        return formatted
+
+    def _format_recent_chapters(self, recent_chapters: list) -> str:
+        """格式化最近几章的摘要信息"""
+        if not recent_chapters:
+            return "无最近章节信息"
+
+        formatted = ""
+        for ch in recent_chapters:
+            num = ch.get("chapter_number", 0)
+            title = ch.get("title", "未知标题")
+            summary = ch.get("summary", "无概要")
+            key_events = ch.get("key_events", [])
+            formatted += f"第{num}章《{title}》\n"
+            formatted += f"  概要：{summary}\n"
+            if key_events:
+                formatted += f"  关键事件：\n"
+                for ev in key_events:
+                    formatted += f"    - {ev}\n"
+            formatted += "\n"
+        return formatted
+
+    def _format_ending_text(self, last_chapter: Dict[str, Any]) -> str:
+        """格式化上一章结尾文字，供写手衔接"""
+        ending = last_chapter.get("ending_text", "")
+        if not ending:
+            return "无上一章结尾文本"
+        return f"「{ending}」"
+
     def _format_last_chapter(self, last_chapter: Dict[str, Any]) -> str:
         """格式化上一章信息"""
         if not last_chapter:
@@ -326,3 +388,47 @@ class ContinuationChapterWriter(BaseAgent):
             else:
                 formatted += f"{category}: 无标签\n"
         return formatted
+
+    def _format_dynamic_knowledge(self, knowledge_base: Dict[str, Any]) -> str:
+        """格式化动态知识（角色发展轨迹/情节时间线/活跃伏笔/世界观变化）"""
+        dk = knowledge_base.get("dynamic_knowledge", {})
+        if not dk:
+            return "暂无动态知识数据"
+
+        parts = []
+
+        char_evo = dk.get("character_evolution", {})
+        if char_evo:
+            lines = []
+            for name, records in char_evo.items():
+                if isinstance(records, list) and records:
+                    recent = records[-3:]
+                    events = [f"  第{r.get('chapter_number', '?')}章: {r.get('description', '')[:80]}" for r in recent]
+                    lines.append(f"  {name}:\n" + "\n".join(events))
+            if lines:
+                parts.append("【角色发展轨迹】\n" + "\n".join(lines))
+
+        plot_timeline = dk.get("plot_timeline", [])
+        if plot_timeline:
+            recent = plot_timeline[-8:]
+            events = [f"  第{e.get('chapter_number', '?')}章 [{e.get('event_type', 'plot')}] {e.get('description', '')[:100]}" for e in recent]
+            parts.append("【情节时间线】\n" + "\n".join(events))
+
+        foreshadowing = dk.get("foreshadowing_tracking", {})
+        if foreshadowing:
+            active = []
+            for ftype, flist in foreshadowing.items():
+                if isinstance(flist, list):
+                    for f in flist:
+                        if f.get("status") == "active":
+                            active.append(f"  [{ftype}] 第{f.get('chapter_number', '?')}章: {f.get('content', '')[:100]}")
+            if active:
+                parts.append("【活跃伏笔（需回收/延续）】\n" + "\n".join(active[:8]))
+
+        world_changes = dk.get("world_changes", [])
+        if world_changes:
+            recent = world_changes[-5:]
+            changes = [f"  第{c.get('chapter_number', '?')}章 [{c.get('change_type', 'world')}] {c.get('description', '')[:120]}" for c in recent]
+            parts.append("【世界观变化】\n" + "\n".join(changes))
+
+        return "\n\n".join(parts) if parts else "动态知识数据为空"

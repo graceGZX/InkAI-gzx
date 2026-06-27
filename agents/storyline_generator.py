@@ -99,6 +99,27 @@ class StorylineGeneratorAgent(BaseAgent):
                 "internal": "内在冲突（内心的挣扎）",
                 "interpersonal": "人际冲突（与他人的对抗）"
             }},
+            "overall_outline": {{
+                "summary": "全书一句话梗概（50字以内，点明核心冲突与结局）",
+                "arcs": [
+                    {{
+                        "name": "弧/阶段名称",
+                        "description": "这个弧的故事概要（200-300字），涵盖起因-发展-高潮-收束",
+                        "turning_points": ["关键转折1", "关键转折2"]
+                    }}
+                ]
+            }},
+            "volumes": [
+                {{
+                    "volume_number": 1,
+                    "title": "第一卷标题",
+                    "synopsis": "本卷概要（300-500字），涵盖本卷主要情节走向",
+                    "key_events": ["核心事件1", "核心事件2", "核心事件3"],
+                    "opening": "开篇状态（本卷开始时主角/世界的状态）",
+                    "ending": "结尾状态/悬念（本卷结束时留下的悬念或阶段性收束）",
+                    "chapters_range": "第1-XX章"
+                }}
+            ],
             "act1": {{
                 "setup": "第一幕设定（详细描述）",
                 "inciting_incident": "引发事件",
@@ -129,6 +150,13 @@ class StorylineGeneratorAgent(BaseAgent):
             "commercial_potential": "商业价值分析",
             "adaptation_potential": "改编潜力评估"
         }}
+
+        【总体大纲与分卷要求】
+        1. overall_outline.summary：用一句话概括全书核心冲突和结局
+        2. overall_outline.arcs：将全书分为3-5个叙事弧（arc），每个弧描述其独立的故事线
+        3. volumes：按出版体例分为若干卷，每卷包含完整的起承转合
+        4. volumes 的数量必须与目标篇幅匹配：短篇1-2卷，中篇2-3卷，长篇3-5卷，超长篇5-8卷
+        5. 确认 overall_outline、volumes 与 act1/act2/act3 三幕剧结构相互呼应
         """
         
         messages = [
@@ -151,11 +179,11 @@ class StorylineGeneratorAgent(BaseAgent):
             {"role": "user", "content": prompt}
         ]
         
-        response = self.call_llm(messages)
+        response = self.call_llm(messages, max_tokens=16384)
         result = self.parse_json_response(response)
-        
+
         return self._validate_storyline(result)
-    
+
     def _generate_first_module(self, storyline: Dict[str, Any], characters: Dict[str, Any], tags: Dict[str, List[str]]) -> Dict[str, Any]:
         """生成第一个模块（第一章）故事线"""
         main_character = characters.get("main_character", {})
@@ -332,11 +360,25 @@ class StorylineGeneratorAgent(BaseAgent):
     def _validate_storyline(self, storyline: Dict[str, Any]) -> Dict[str, Any]:
         """验证故事线"""
         required_keys = ["world_setting", "main_goal", "conflict", "act1", "act2", "act3"]
-        
+
         for key in required_keys:
             if key not in storyline:
                 storyline[key] = {}
-        
+
+        # 确保 overall_outline 存在
+        if "overall_outline" not in storyline or not isinstance(storyline.get("overall_outline"), dict):
+            storyline["overall_outline"] = {
+                "summary": "未知",
+                "arcs": []
+            }
+        else:
+            storyline["overall_outline"].setdefault("summary", "未知")
+            storyline["overall_outline"].setdefault("arcs", [])
+
+        # 确保 volumes 存在
+        if "volumes" not in storyline or not isinstance(storyline.get("volumes"), list):
+            storyline["volumes"] = []
+
         return storyline
     
     def _validate_first_module(self, module: Dict[str, Any]) -> Dict[str, Any]:

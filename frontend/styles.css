@@ -1836,3 +1836,116 @@ body {
 .completion-actions .btn-lg {
     min-width: 160px;
 }
+
+/* 对话式需求确认样式 */
+.dialogue-container {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 16px;
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #e9ecef;
+}
+
+.dialogue-msg {
+    margin-bottom: 12px;
+}
+
+.dialogue-bubble {
+    display: inline-block;
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.ai-bubble {
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+    border-bottom-left-radius: 4px;
+    color: #212529;
+}
+
+.user-bubble {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+    border-bottom-right-radius: 4px;
+    float: right;
+}
+
+.dialogue-msg.dialogue-user {
+    text-align: right;
+}
+
+/* 手机聊天式快速回复气泡 */
+.chat-quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-left: 8px;
+    margin-top: 6px;
+}
+
+.chat-reply-btn {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    cursor: pointer;
+    user-select: none;
+    background: #ffffff;
+    border: 1px solid #667eea;
+    color: #667eea;
+    transition: all 0.15s ease;
+    max-width: 90%;
+}
+
+.chat-reply-btn:hover {
+    background: #667eea;
+    color: #ffffff;
+}
+
+.chat-reply-btn:active {
+    transform: scale(0.96);
+    background: #5a6fd6;
+}
+
+.chat-reply-btn.confirm {
+    background: #28a745;
+    border-color: #28a745;
+    color: #fff;
+    font-weight: 500;
+}
+
+.chat-reply-btn.confirm:hover {
+    background: #218838;
+}
+
+.chat-reply-btn.secondary {
+    background: #f8f9fa;
+    border-color: #ced4da;
+    color: #6c757d;
+}
+
+.chat-reply-btn.secondary:hover {
+    background: #e9ecef;
+}
+
+.dialogue-custom-input {
+    width: 100%;
+    margin-left: 8px;
+}
+
+.dialogue-custom-input .form-control {
+    border-radius: 20px;
+    font-size: 0.85rem;
+    border: 1px dashed #667eea;
+}
+
+.dialogue-custom-input .form-control:focus {
+    border-style: solid;
+    box-shadow: 0 0 0 0.15rem rgba(102, 126, 234, 0.2);
+}

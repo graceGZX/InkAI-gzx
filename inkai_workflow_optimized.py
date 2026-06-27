@@ -100,7 +100,12 @@ class InkAIWorkflowOptimized:
         self.continuation_long_term_consistency_improver = ContinuationLongTermConsistencyImprover()
         
         self.data_manager = DataManager()
-        
+
+        # 初始化向量嵌入服务
+        from core.embedding_service import EmbeddingService
+        self.embedding_service = EmbeddingService()
+        print(f"[Workflow] 向量嵌入服务初始化完成，可用: {self.embedding_service.is_available}")
+
         # 初始化核心管理模块
         self.core_knowledge_manager = CoreKnowledgeManager(self.data_manager)
         self.dynamic_knowledge_manager = DynamicKnowledgeManager(self.data_manager)
@@ -670,10 +675,57 @@ class InkAIWorkflowOptimized:
         
         if not self.context or not self.context.is_continuation:
             return {"error": "请先开始续写流程"}
-        
+
+        # 向量语义检索：找到与当前剧情方向最相关的前N章
+        kb = self.context.continuation_data["knowledge_base"]
+        if self.embedding_service.is_available:
+            try:
+                # 构建查询：用最近章节的摘要 + 剧情方向做语义检索
+                novel_dir = os.path.join(self.data_manager.novels_dir, novel_id or self.context.novel_id)
+                from core.embedding_service import ChapterEmbeddingStore
+                store = ChapterEmbeddingStore(novel_dir, self.embedding_service)
+
+                # 用最近几章的摘要作为查询
+                # 回填缺失的历史章节向量（修复：第1,2章可能没有向量）
+                store.backfill_chapters(kb.get("chapters", []))
+
+                recent = kb.get("recent_chapters_summaries", [])
+                if recent:
+                    query_parts = []
+                    for ch in recent:
+                        query_parts.append(ch.get("summary", ""))
+                    query = "；".join(query_parts)
+                    retrieved = store.search_relevant_chapters(query, current_chapter=len(kb.get("chapters", [])),
+                                                               top_k=5)
+                    if retrieved:
+                        # 加载检索到的章节详情，注入 KB
+                        all_chapters = kb.get("chapters", [])
+                        ch_map = {ch.get("chapter_number"): ch for ch in all_chapters}
+                        vector_context = []
+                        for item in retrieved:
+                            ch_num = item["chapter_number"]
+                            ch = ch_map.get(ch_num)
+                            if ch:
+                                vector_context.append({
+                                    "chapter_number": ch_num,
+                                    "title": ch.get("title", ""),
+                                    "summary": ch.get("summary", ""),
+                                    "key_events": ch.get("key_events", []),
+                                    "relevance_score": item["score"]
+                                })
+                        if vector_context:
+                            kb["vector_retrieved_chapters"] = vector_context
+                            self.context.continuation_data["knowledge_base"] = kb
+                            print(f"[Vector] 检索到 {len(vector_context)} 个相关章节: {[c['chapter_number'] for c in vector_context]}")
+            except Exception as e:
+                print(f"[Vector] 语义检索失败（不影响主线）: {e}")
+
+        # 注入动态知识
+        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id)
+
         # 调用续写故事线生成智能体
         result = self.continuation_storyline_generator.process({
-            "knowledge_base": self.context.continuation_data["knowledge_base"],
+            "knowledge_base": kb,
             "user_requirements": self.context.user_requirements
         })
         
@@ -974,10 +1026,43 @@ class InkAIWorkflowOptimized:
         if not content:
             return {"error": f"缺少{content_type}内容"}
         
-        # 构建续写质量评估输入
+        # 构建续写质量评估输入，注入向量检索结果
+        kb = dict(self.context.continuation_data["knowledge_base"])
+        if self.embedding_service.is_available and "vector_retrieved_chapters" not in kb:
+            try:
+                novel_dir = os.path.join(self.data_manager.novels_dir, novel_id or self.context.novel_id)
+                from core.embedding_service import ChapterEmbeddingStore
+                store = ChapterEmbeddingStore(novel_dir, self.embedding_service)
+                store.backfill_chapters(kb.get("chapters", []))
+                recent = kb.get("recent_chapters_summaries", [])
+                if recent:
+                    query = "；".join([ch.get("summary", "") for ch in recent])
+                    retrieved = store.search_relevant_chapters(query, current_chapter=len(kb.get("chapters", [])), top_k=5)
+                    if retrieved:
+                        all_chapters = kb.get("chapters", [])
+                        ch_map = {ch.get("chapter_number"): ch for ch in all_chapters}
+                        vector_context = []
+                        for item in retrieved:
+                            ch = ch_map.get(item["chapter_number"])
+                            if ch:
+                                vector_context.append({
+                                    "chapter_number": item["chapter_number"],
+                                    "title": ch.get("title", ""),
+                                    "summary": ch.get("summary", ""),
+                                    "key_events": ch.get("key_events", []),
+                                    "relevance_score": item["score"]
+                                })
+                        if vector_context:
+                            kb["vector_retrieved_chapters"] = vector_context
+            except Exception as e:
+                print(f"[Vector] 评估器检索失败（不影响主线）: {e}")
+
+        # 注入动态知识
+        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id)
+
         quality_input = {
             "continuation_content": content,
-            "original_knowledge_base": self.context.continuation_data["knowledge_base"],
+            "original_knowledge_base": kb,
             "content_type": content_type,
             "user_requirements": self.context.user_requirements
         }
@@ -1042,10 +1127,46 @@ class InkAIWorkflowOptimized:
         if not storyline:
             return {"error": "请先生成故事线"}
         
+        # 确保 KB 中包含向量检索结果
+        kb = self.context.continuation_data["knowledge_base"]
+        if self.embedding_service.is_available and "vector_retrieved_chapters" not in kb:
+            try:
+                novel_dir = os.path.join(self.data_manager.novels_dir, novel_id or self.context.novel_id)
+                from core.embedding_service import ChapterEmbeddingStore
+                store = ChapterEmbeddingStore(novel_dir, self.embedding_service)
+                store.backfill_chapters(kb.get("chapters", []))
+                recent = kb.get("recent_chapters_summaries", [])
+                if recent:
+                    query = "；".join([ch.get("summary", "") for ch in recent])
+                    retrieved = store.search_relevant_chapters(query, current_chapter=len(kb.get("chapters", [])), top_k=5)
+                    if retrieved:
+                        all_chapters = kb.get("chapters", [])
+                        ch_map = {ch.get("chapter_number"): ch for ch in all_chapters}
+                        vector_context = []
+                        for item in retrieved:
+                            ch = ch_map.get(item["chapter_number"])
+                            if ch:
+                                vector_context.append({
+                                    "chapter_number": item["chapter_number"],
+                                    "title": ch.get("title", ""),
+                                    "summary": ch.get("summary", ""),
+                                    "key_events": ch.get("key_events", []),
+                                    "relevance_score": item["score"]
+                                })
+                        if vector_context:
+                            kb["vector_retrieved_chapters"] = vector_context
+                            self.context.continuation_data["knowledge_base"] = kb
+                            print(f"[Vector] 章节写手检索到 {len(vector_context)} 个相关章节")
+            except Exception as e:
+                print(f"[Vector] 章节写手检索失败（不影响主线）: {e}")
+
+        # 注入动态知识
+        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id)
+
         # 调用续写章节写作智能体
         result = self.continuation_chapter_writer.process({
             "storyline": storyline,
-            "knowledge_base": self.context.continuation_data["knowledge_base"],
+            "knowledge_base": kb,
             "user_requirements": self.context.user_requirements
         })
         
@@ -1147,12 +1268,34 @@ class InkAIWorkflowOptimized:
             if "next_chapter_content" in self.context._cache:
                 del self.context._cache["next_chapter_content"]
             
-            # 修复：更新上下文中的章节数据
+            # 修复：更新上下文中的章节数据并重建知识库
             if self.context.continuation_data and "novel_data" in self.context.continuation_data:
                 # 重新加载最新的章节数据
                 latest_chapters = self.data_manager.get_novel_chapters(novel_id)
                 self.context.continuation_data["novel_data"]["chapters"] = latest_chapters
                 print(f"上下文章节数据已更新，当前章节数: {len(latest_chapters)}")
+                # 重建知识库，让下一章能看见最新章节
+                from agents.novel_continuation_agent import NovelContinuationAgent
+                kb_agent = NovelContinuationAgent()
+                new_kb = kb_agent._build_knowledge_base(self.context.continuation_data["novel_data"])
+                self.context.continuation_data["knowledge_base"] = new_kb
+                print(f"知识库已重建，last_chapter_summary 更新为第{new_kb.get('last_chapter_summary', {}).get('chapter_number', 0)}章")
+
+                # 为最新章节构建向量嵌入
+                if self.embedding_service.is_available:
+                    try:
+                        from core.embedding_service import ChapterEmbeddingStore
+                        novel_dir = os.path.join(self.data_manager.novels_dir, novel_id)
+                        store = ChapterEmbeddingStore(novel_dir, self.embedding_service)
+                        store.build_embedding_for_chapter(current_chapter_number, chapter_data)
+                    except Exception as e:
+                        print(f"[Embedding] 构建向量失败（不影响主线）: {e}")
+
+                # ── 更新动态知识图谱 ──
+                try:
+                    self._update_knowledge_graph_after_chapter(novel_id, current_chapter_number, chapter_data)
+                except Exception as e:
+                    print(f"[KnowledgeGraph] 更新失败（不影响主线）: {e}")
             
             self.context.set_current_step("chapter_completed")
             self.save_context()  # 保存上下文以清除缓存
@@ -1180,7 +1323,125 @@ class InkAIWorkflowOptimized:
                 }
         else:
             return {"error": "章节保存失败"}
-    
+
+    def _update_knowledge_graph_after_chapter(self, novel_id: str, chapter_number: int,
+                                               chapter_data: Dict[str, Any]):
+        """每章保存后更新动态知识图谱——角色/情节/伏笔/世界观滚动追踪"""
+        # 1. 添加章节摘要
+        self.dynamic_knowledge_manager.add_chapter_summary(novel_id, chapter_number, {
+            "title": chapter_data.get("title", ""),
+            "summary": chapter_data.get("summary", ""),
+            "key_events": chapter_data.get("key_events", []),
+            "character_development": chapter_data.get("character_development", {}),
+            "foreshadowing": chapter_data.get("foreshadowing", []),
+            "word_count": chapter_data.get("word_count", 0)
+        })
+
+        # 2. 更新情节时间线
+        key_events = chapter_data.get("key_events", [])
+        if key_events:
+            plot_events = []
+            for ev in key_events:
+                if isinstance(ev, str):
+                    plot_events.append({"type": "plot", "description": ev, "importance": "medium"})
+                elif isinstance(ev, dict):
+                    plot_events.append({
+                        "type": ev.get("type", "plot"),
+                        "description": ev.get("description", ev.get("event", str(ev))),
+                        "importance": ev.get("importance", "medium"),
+                        "characters": ev.get("characters", []),
+                        "consequences": ev.get("consequences", [])
+                    })
+            if plot_events:
+                self.dynamic_knowledge_manager.update_plot_timeline(novel_id, chapter_number, plot_events)
+
+        # 3. 更新人物发展
+        char_dev = chapter_data.get("character_development", {})
+        if isinstance(char_dev, dict):
+            for char_name, changes in char_dev.items():
+                if isinstance(changes, str):
+                    self.dynamic_knowledge_manager.update_character_evolution(
+                        novel_id, chapter_number, char_name,
+                        {"type": "development", "description": changes}
+                    )
+                elif isinstance(changes, dict):
+                    self.dynamic_knowledge_manager.update_character_evolution(
+                        novel_id, chapter_number, char_name, changes
+                    )
+        elif isinstance(char_dev, str) and char_dev:
+            self.dynamic_knowledge_manager.update_character_evolution(
+                novel_id, chapter_number, "主角",
+                {"type": "development", "description": char_dev}
+            )
+
+        # 4. 更新伏笔台账
+        foreshadowing = chapter_data.get("foreshadowing", [])
+        if isinstance(foreshadowing, list):
+            for fs in foreshadowing:
+                if isinstance(fs, str):
+                    self.dynamic_knowledge_manager.update_foreshadowing_tracking(
+                        novel_id, chapter_number,
+                        {"type": "general", "content": fs, "importance": "medium"}
+                    )
+                elif isinstance(fs, dict):
+                    self.dynamic_knowledge_manager.update_foreshadowing_tracking(
+                        novel_id, chapter_number, fs
+                    )
+        elif isinstance(foreshadowing, str) and foreshadowing:
+            self.dynamic_knowledge_manager.update_foreshadowing_tracking(
+                novel_id, chapter_number,
+                {"type": "general", "content": foreshadowing, "importance": "medium"}
+            )
+
+        # 5. 更新世界观变动（从关键事件中检测世界观相关变化）
+        world_changes = []
+        if key_events:
+            world_keywords = ["规则", "设定", "境界", "力量", "法则", "天道", "体系", "世界", "领域", "秩序"]
+            for ev in key_events:
+                text = ev if isinstance(ev, str) else ev.get("description", ev.get("event", ""))
+                if any(kw in str(text) for kw in world_keywords):
+                    world_changes.append({
+                        "type": "world_revelation",
+                        "description": str(text)[:200],
+                        "scope": "local"
+                    })
+        if world_changes:
+            self.dynamic_knowledge_manager.update_world_changes(novel_id, chapter_number, world_changes)
+
+        # 6. 整合动态知识到知识图谱
+        try:
+            dynamic_summary = self.dynamic_knowledge_manager.get_dynamic_summary(novel_id)
+            existing_kg = self.data_manager.get_knowledge_graph_by_novel_id(novel_id)
+            if existing_kg:
+                kg_id = existing_kg.get("kg_id", "")
+                kg_update = {
+                    "dynamic_summary": dynamic_summary,
+                    "chapter_count": chapter_number,
+                    "last_chapter_title": chapter_data.get("title", ""),
+                    "last_updated_chapter": chapter_number,
+                    "updated_at": datetime.now().isoformat()
+                }
+                self.data_manager.update_knowledge_graph(kg_id, kg_update)
+                print(f"[KnowledgeGraph] 知识图谱已更新至第 {chapter_number} 章 ({dynamic_summary})")
+            else:
+                # 首次：创建知识图谱
+                characters = self.data_manager.load_novel_data(novel_id, "characters") or {}
+                storyline = self.data_manager.load_novel_data(novel_id, "storyline") or {}
+                kg_id = self.data_manager.create_knowledge_graph(novel_id, characters, storyline)
+                print(f"[KnowledgeGraph] 首次创建知识图谱: {kg_id}")
+        except Exception as e:
+            print(f"[KnowledgeGraph] 合并动态知识到图谱失败: {e}")
+
+    def _inject_dynamic_knowledge(self, kb: Dict[str, Any], novel_id: str) -> Dict[str, Any]:
+        """将动态知识注入 knowledge_base，供所有 agent 读取"""
+        try:
+            dk = self.dynamic_knowledge_manager.get_dynamic_knowledge(novel_id)
+            if dk:
+                kb["dynamic_knowledge"] = dk
+        except Exception as e:
+            print(f"[DynamicKB] 注入动态知识失败: {e}")
+        return kb
+
     def _extract_clean_content(self, raw_content: str) -> str:
         """从可能包含markdown格式的内容中提取纯文本"""
         if not raw_content:

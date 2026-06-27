@@ -168,7 +168,8 @@ class NovelContinuationAgent(BaseAgent):
                 "world_setting": self._format_world_setting(storyline.get("overall_storyline", {}).get("world_setting", {})),
                 "story_tone": storyline.get("overall_storyline", {}).get("tone", ""),
                 "tags": tags,
-                "last_chapter_summary": self._get_last_chapter_summary(chapters)
+                "last_chapter_summary": self._get_last_chapter_summary(chapters),
+                "recent_chapters_summaries": self._get_recent_chapters_summaries(chapters, n=3)
             }
             
             return knowledge_base
@@ -176,6 +177,21 @@ class NovelContinuationAgent(BaseAgent):
             self.log(f"构建知识库失败: {e}")
             return {}
     
+    def _get_recent_chapters_summaries(self, chapters: List[Dict[str, Any]], n: int = 3) -> List[Dict[str, Any]]:
+        """获取最近N章的摘要信息（含关键事件），用于章纲生成器了解近期剧情"""
+        if not chapters:
+            return []
+        recent = chapters[-n:] if len(chapters) >= n else chapters[:]
+        summaries = []
+        for ch in recent:
+            summaries.append({
+                "chapter_number": ch.get("chapter_number", 0),
+                "title": ch.get("title", ""),
+                "summary": ch.get("summary", ""),
+                "key_events": ch.get("key_events", [])
+            })
+        return summaries
+
     def _extract_plot_lines(self, storyline: Dict[str, Any], chapters: List[Dict[str, Any]]) -> Dict[str, Any]:
         """提取故事线"""
         plot_lines = {
@@ -224,11 +240,15 @@ class NovelContinuationAgent(BaseAgent):
             return {}
         
         last_chapter = chapters[-1]
+        # 取上一章结尾文字（最后300字），用于写手做平滑过渡
+        content = last_chapter.get("content", "")
+        ending_text = content[-300:] if len(content) > 300 else content
         return {
             "chapter_number": last_chapter.get("chapter_number", 0),
             "title": last_chapter.get("title", ""),
             "summary": last_chapter.get("summary", ""),
             "key_events": last_chapter.get("key_events", []),
             "foreshadowing": last_chapter.get("foreshadowing", []),
-            "next_chapter_hint": last_chapter.get("next_chapter_hint", "")
+            "next_chapter_hint": last_chapter.get("next_chapter_hint", ""),
+            "ending_text": ending_text
         }

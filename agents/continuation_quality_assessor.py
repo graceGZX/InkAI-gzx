@@ -49,32 +49,43 @@ class ContinuationQualityAssessor(BaseAgent):
                 "suggestions": [f"评估过程出错: {str(e)}"]
             }
     
-    def _assess_story_consistency(self, chapter_content: Dict[str, Any], 
+    def _assess_story_consistency(self, chapter_content: Dict[str, Any],
                                 knowledge_base: Dict[str, Any]) -> Dict[str, Any]:
         """评估故事内容一致性"""
         content = chapter_content.get("content", "")
         character_profiles = knowledge_base.get("character_profiles", {})
         last_chapter = knowledge_base.get("last_chapter_summary", {})
+        recent_chapters = knowledge_base.get("recent_chapters_summaries", [])
+        vector_chapters = knowledge_base.get("vector_retrieved_chapters", [])
         world_setting = knowledge_base.get("world_setting", "")
         story_tone = knowledge_base.get("story_tone", "")
-        
+
         # 构建评估提示
         prompt = f"""
         请评估以下续写章节与原文的一致性，重点关注以下维度：
-        
-        原文信息：
+
+        原文设定：
         1. 人物设定：
         {self._format_character_profiles(character_profiles)}
-        
+
         2. 世界观设定：
         {world_setting}
-        
+
         3. 故事基调：
         {story_tone}
-        
-        4. 上一章结尾：
+
+        4. 最近几章实际剧情（用于对照人物行为是否一致、场景是否重复）：
+        {self._format_recent_chapters(recent_chapters)}
+
+        5. 语义关联的历史章节（用于检查伏笔回收和前后呼应）：
+        {self._format_vector_chapters(vector_chapters)}
+
+        6. 动态知识（角色实际发展轨迹/情节时间线/活跃伏笔/世界观变化——用于校验新章是否矛盾）：
+        {self._format_dynamic_knowledge(knowledge_base)}
+
+        7. 上一章结尾：
         {self._format_last_chapter(last_chapter)}
-        
+
         续写章节内容：
         {content}
         
@@ -530,6 +541,38 @@ class ContinuationQualityAssessor(BaseAgent):
         
         return formatted
     
+    def _format_recent_chapters(self, recent_chapters: list) -> str:
+        """格式化最近几章摘要，供评估器对照"""
+        if not recent_chapters:
+            return "无最近章节信息"
+        formatted = ""
+        for ch in recent_chapters:
+            formatted += f"第{ch.get('chapter_number', 0)}章《{ch.get('title', '')}》\n"
+            formatted += f"  概要：{ch.get('summary', '')}\n"
+            events = ch.get("key_events", [])
+            if events:
+                formatted += "  关键事件：\n"
+                for ev in events:
+                    formatted += f"    - {ev}\n"
+            formatted += "\n"
+        return formatted
+
+    def _format_vector_chapters(self, vector_chapters: list) -> str:
+        """格式化向量检索到的关联章节"""
+        if not vector_chapters:
+            return "无语义关联章节"
+        formatted = ""
+        for ch in vector_chapters:
+            formatted += f"第{ch.get('chapter_number', 0)}章《{ch.get('title', '')}》（相关度: {ch.get('relevance_score', 0)}）\n"
+            formatted += f"  概要：{ch.get('summary', '')}\n"
+            events = ch.get("key_events", [])
+            if events:
+                formatted += "  关键事件：\n"
+                for ev in events:
+                    formatted += f"    - {ev}\n"
+            formatted += "\n"
+        return formatted
+
     def _format_last_chapter(self, last_chapter: Dict[str, Any]) -> str:
         """格式化上一章信息"""
         if not last_chapter:
@@ -578,3 +621,46 @@ class ContinuationQualityAssessor(BaseAgent):
         summary += f"故事基调：{knowledge_base.get('story_tone', '未知')}\n"
         
         return summary
+
+    def _format_dynamic_knowledge(self, knowledge_base: Dict[str, Any]) -> str:
+        """格式化动态知识（用于校验新章与已发生事实的矛盾）"""
+        dk = knowledge_base.get("dynamic_knowledge", {})
+        if not dk:
+            return "暂无动态知识数据"
+
+        parts = []
+        char_evo = dk.get("character_evolution", {})
+        if char_evo:
+            lines = []
+            for name, records in char_evo.items():
+                if isinstance(records, list) and records:
+                    recent = records[-3:]
+                    events = [f"  第{r.get('chapter_number', '?')}章: {r.get('description', '')[:80]}" for r in recent]
+                    lines.append(f"  {name}:\n" + "\n".join(events))
+            if lines:
+                parts.append("【角色发展轨迹】\n" + "\n".join(lines))
+
+        plot_timeline = dk.get("plot_timeline", [])
+        if plot_timeline:
+            recent = plot_timeline[-8:]
+            events = [f"  第{e.get('chapter_number', '?')}章 [{e.get('event_type', 'plot')}] {e.get('description', '')[:100]}" for e in recent]
+            parts.append("【情节时间线】\n" + "\n".join(events))
+
+        foreshadowing = dk.get("foreshadowing_tracking", {})
+        if foreshadowing:
+            active = []
+            for ftype, flist in foreshadowing.items():
+                if isinstance(flist, list):
+                    for f in flist:
+                        if f.get("status") == "active":
+                            active.append(f"  [{ftype}] 第{f.get('chapter_number', '?')}章: {f.get('content', '')[:100]}")
+            if active:
+                parts.append("【活跃伏笔（检查新章是否回收或遗忘）】\n" + "\n".join(active[:8]))
+
+        world_changes = dk.get("world_changes", [])
+        if world_changes:
+            recent = world_changes[-5:]
+            changes = [f"  第{c.get('chapter_number', '?')}章 [{c.get('change_type', 'world')}] {c.get('description', '')[:120]}" for c in recent]
+            parts.append("【世界观变化】\n" + "\n".join(changes))
+
+        return "\n\n".join(parts) if parts else "动态知识数据为空"

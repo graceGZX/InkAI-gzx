@@ -32,7 +32,7 @@ class ContinuationStorylineGenerator(BaseAgent):
             "next_step": "chapter_writing"
         }
     
-    def _generate_next_chapter_storyline(self, knowledge_base: Dict[str, Any], 
+    def _generate_next_chapter_storyline(self, knowledge_base: Dict[str, Any],
                                        user_requirements: str) -> Dict[str, Any]:
         """生成下一章故事线"""
         try:
@@ -42,35 +42,49 @@ class ContinuationStorylineGenerator(BaseAgent):
             character_profiles = knowledge_base.get("character_profiles", {})
             plot_lines = knowledge_base.get("plot_lines", {})
             last_chapter = knowledge_base.get("last_chapter_summary", {})
+            recent_chapters = knowledge_base.get("recent_chapters_summaries", [])
+            vector_chapters = knowledge_base.get("vector_retrieved_chapters", [])
             world_setting = knowledge_base.get("world_setting", "")
             story_tone = knowledge_base.get("story_tone", "")
             tags = knowledge_base.get("tags", {})
-            
+
             # 确定下一章号
             next_chapter_number = len(chapters) + 1
-            
+
             # 构建生成提示
             prompt = f"""
             请为小说《{novel_info.get('title', '未知标题')}》生成第{next_chapter_number}章的故事线。
-            
+
             原文信息：
             1. 世界观设定：{world_setting}
             2. 故事基调：{story_tone}
             3. 故事标签：{self._format_tags(tags)}
-            
+
             4. 人物设定：
             {self._format_character_profiles(character_profiles)}
-            
+
             5. 整体故事线：
             {self._format_plot_lines(plot_lines)}
-            
-            6. 上一章结尾：
+
+            6. 最近几章剧情回顾（请仔细阅读，确保不重复已写过的场景和地点）：
+            {self._format_recent_chapters(recent_chapters)}
+
+            7. 语义关联的历史章节（与当前剧情方向相关，请检查伏笔和前后呼应）：
+            {self._format_vector_chapters(vector_chapters)}
+
+            8. 动态知识（角色发展轨迹/情节时间线/活跃伏笔/世界观变化）：
+            {self._format_dynamic_knowledge(knowledge_base)}
+
+            9. 上一章结尾：
             {self._format_last_chapter(last_chapter)}
-            
-            7. 用户续写需求：{user_requirements if user_requirements else "无特殊要求"}
-            
+
+            10. 上一章结尾原文（本章开篇场景/时间必须与此衔接）：
+            {self._format_ending_text(last_chapter)}
+
+            11. 用户续写需求：{user_requirements if user_requirements else "无特殊要求"}
+
             请生成第{next_chapter_number}章的详细故事线，要求：
-            1. 合理承接上一章的情节发展
+            1. scene_setting 中的 time/location 必须与上一章结尾的场景/时间自然衔接，不得跳转
             2. 推进主线故事发展
             3. 保持人物性格一致性
             4. 符合世界观设定
@@ -259,6 +273,52 @@ class ContinuationStorylineGenerator(BaseAgent):
         
         return formatted
     
+    def _format_vector_chapters(self, vector_chapters: list) -> str:
+        """格式化向量检索到的历史相关章节"""
+        if not vector_chapters:
+            return "无语义关联章节"
+
+        formatted = ""
+        for ch in vector_chapters:
+            num = ch.get("chapter_number", 0)
+            title = ch.get("title", "未知标题")
+            summary = ch.get("summary", "无概要")
+            score = ch.get("relevance_score", 0)
+            key_events = ch.get("key_events", [])
+            formatted += f"第{num}章《{title}》（相关度: {score}）\n"
+            formatted += f"  概要：{summary}\n"
+            if key_events:
+                formatted += f"  关键事件：\n"
+                for ev in key_events:
+                    formatted += f"    - {ev}\n"
+            formatted += "\n"
+        return formatted
+
+    def _format_recent_chapters(self, recent_chapters: list) -> str:
+        """格式化最近几章的摘要信息"""
+        if not recent_chapters:
+            return "无最近章节信息"
+
+        formatted = ""
+        for ch in recent_chapters:
+            num = ch.get("chapter_number", 0)
+            title = ch.get("title", "未知标题")
+            summary = ch.get("summary", "无概要")
+            key_events = ch.get("key_events", [])
+            formatted += f"第{num}章《{title}》\n"
+            formatted += f"  概要：{summary}\n"
+            if key_events:
+                formatted += f"  关键事件：\n"
+                for ev in key_events:
+                    formatted += f"    - {ev}\n"
+            formatted += "\n"
+        return formatted
+
+    def _format_ending_text(self, last_chapter: Dict[str, Any]) -> str:
+        """格式化上一章结尾原文"""
+        ending = last_chapter.get("ending_text", "")
+        return f"「{ending}」" if ending else "无上一章结尾文本"
+
     def _format_last_chapter(self, last_chapter: Dict[str, Any]) -> str:
         """格式化上一章信息"""
         if not last_chapter:
@@ -294,3 +354,46 @@ class ContinuationStorylineGenerator(BaseAgent):
             else:
                 formatted += f"{category}: 无标签\n"
         return formatted
+
+    def _format_dynamic_knowledge(self, knowledge_base: Dict[str, Any]) -> str:
+        """格式化动态知识"""
+        dk = knowledge_base.get("dynamic_knowledge", {})
+        if not dk:
+            return "暂无动态知识数据"
+
+        parts = []
+        char_evo = dk.get("character_evolution", {})
+        if char_evo:
+            lines = []
+            for name, records in char_evo.items():
+                if isinstance(records, list) and records:
+                    recent = records[-3:]
+                    events = [f"  第{r.get('chapter_number', '?')}章: {r.get('description', '')[:80]}" for r in recent]
+                    lines.append(f"  {name}:\n" + "\n".join(events))
+            if lines:
+                parts.append("【角色发展轨迹】\n" + "\n".join(lines))
+
+        plot_timeline = dk.get("plot_timeline", [])
+        if plot_timeline:
+            recent = plot_timeline[-8:]
+            events = [f"  第{e.get('chapter_number', '?')}章 [{e.get('event_type', 'plot')}] {e.get('description', '')[:100]}" for e in recent]
+            parts.append("【情节时间线】\n" + "\n".join(events))
+
+        foreshadowing = dk.get("foreshadowing_tracking", {})
+        if foreshadowing:
+            active = []
+            for ftype, flist in foreshadowing.items():
+                if isinstance(flist, list):
+                    for f in flist:
+                        if f.get("status") == "active":
+                            active.append(f"  [{ftype}] 第{f.get('chapter_number', '?')}章: {f.get('content', '')[:100]}")
+            if active:
+                parts.append("【活跃伏笔（需回收/延续）】\n" + "\n".join(active[:8]))
+
+        world_changes = dk.get("world_changes", [])
+        if world_changes:
+            recent = world_changes[-5:]
+            changes = [f"  第{c.get('chapter_number', '?')}章 [{c.get('change_type', 'world')}] {c.get('description', '')[:120]}" for c in recent]
+            parts.append("【世界观变化】\n" + "\n".join(changes))
+
+        return "\n\n".join(parts) if parts else "动态知识数据为空"

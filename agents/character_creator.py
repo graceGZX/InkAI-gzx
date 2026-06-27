@@ -356,27 +356,80 @@ class CharacterCreatorAgent(BaseAgent):
     
     def _validate_character(self, character: Dict[str, Any], character_type: str) -> Dict[str, Any]:
         """验证和补充人物信息"""
-        
+
         # 确保必要字段存在
-        if "basic_info" not in character:
+        if "basic_info" not in character or not isinstance(character.get("basic_info"), dict):
             character["basic_info"] = {}
-        
-        if "personality" not in character:
+
+        if "personality" not in character or not isinstance(character.get("personality"), dict):
             character["personality"] = {}
-        
-        if "appearance" not in character:
+
+        if "appearance" not in character or not isinstance(character.get("appearance"), dict):
             character["appearance"] = {}
-        
-        if "background" not in character:
+
+        if "background" not in character or not isinstance(character.get("background"), dict):
             character["background"] = {}
-        
-        # 补充原型特征
-        if character_type in config.CHARACTER_ARCHETYPES:
-            archetype = config.CHARACTER_ARCHETYPES[character_type]
-            if "skills" not in character:
-                character["skills"] = []
-            character["skills"].extend(archetype["traits"])
-        
+
+        # 确保 skills 字段存在（dict 格式）
+        if "skills" not in character or not isinstance(character.get("skills"), dict):
+            character["skills"] = {
+                "core_skills": [],
+                "auxiliary_skills": [],
+                "hidden_skills": [],
+                "skill_levels": {}
+            }
+        else:
+            skills = character["skills"]
+            skills.setdefault("core_skills", [])
+            skills.setdefault("auxiliary_skills", [])
+            skills.setdefault("hidden_skills", [])
+            skills.setdefault("skill_levels", {})
+
+        # 确保 relationships 字段存在
+        if "relationships" not in character or not isinstance(character.get("relationships"), dict):
+            character["relationships"] = {
+                "family": {},
+                "friends": {},
+                "enemies": {},
+                "romantic": "未知"
+            }
+        else:
+            rels = character["relationships"]
+            rels.setdefault("family", {})
+            rels.setdefault("friends", {})
+            rels.setdefault("enemies", {})
+            rels.setdefault("romantic", "未知")
+
+        # 确保 character_arc 字段存在
+        if "character_arc" not in character or not isinstance(character.get("character_arc"), dict):
+            character["character_arc"] = {
+                "starting_point": "未知",
+                "growth_direction": "未知",
+                "potential_conflicts": [],
+                "transformation_opportunities": []
+            }
+        else:
+            arc = character["character_arc"]
+            arc.setdefault("starting_point", "未知")
+            arc.setdefault("growth_direction", "未知")
+            arc.setdefault("potential_conflicts", [])
+            arc.setdefault("transformation_opportunities", [])
+
+        # 确保 story_function 字段存在
+        if "story_function" not in character or not isinstance(character.get("story_function"), dict):
+            character["story_function"] = {
+                "role_in_plot": "未知",
+                "conflict_generator": "未知",
+                "theme_representative": "未知",
+                "reader_connection": "未知"
+            }
+        else:
+            sf = character["story_function"]
+            sf.setdefault("role_in_plot", "未知")
+            sf.setdefault("conflict_generator", "未知")
+            sf.setdefault("theme_representative", "未知")
+            sf.setdefault("reader_connection", "未知")
+
         return character
     
     def _improve_existing_characters(self, existing_characters: Dict[str, Any], 

@@ -45,6 +45,13 @@ const Utils = {
             </div>
         `;
     },
+    // HTML转义
+    escapeHtml: (str) => {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    },
     // 格式化章节内容
     formatChapterContent: (content) => {
         if (!content) return '';
@@ -1462,6 +1469,8 @@ const renderOverallStorylineCard = (storyline) => {
         return `<div class="storyline-section mb-3"><h6 class="text-primary mb-1">${title}</h6>${rows}</div>`;
     };
     return `
+        ${section('总体大纲', og.overall_outline)}
+        ${section('分卷大纲', og.volumes ? og.volumes.map(v => `第${v.volume_number}卷：${v.title || ''}`).join('；') : null)}
         ${section('主要目标', og.main_goal)}
         ${section('核心冲突', og.core_conflict)}
         ${section('世界观设定', og.world_setting)}
@@ -1472,6 +1481,71 @@ const renderOverallStorylineCard = (storyline) => {
         ${section('故事基调', og.tone)}
         ${section('目标受众', og.target_audience)}
     `;
+};
+
+// 渲染「总体大纲」区块
+const renderOverallOutline = (storyline) => {
+    const outline = storyline?.overall_storyline?.overall_outline || storyline?.overall_outline;
+    if (!outline || !outline.summary) return '';
+
+    let html = `
+        <div class="storyline-section mb-3" style="border-left: 3px solid #6f42c1; padding-left: 12px;">
+            <h6 class="text-primary mb-2"><i class="fas fa-compass me-1"></i>总体大纲</h6>
+            <div class="mb-2"><strong>一句话梗概：</strong>${escapeStorylineText(outline.summary)}</div>`;
+
+    if (outline.arcs && outline.arcs.length > 0) {
+        html += `<div class="storyline-arcs mt-2">`;
+        outline.arcs.forEach((arc, idx) => {
+            html += `
+                <div class="arc-item mb-2" style="background:#f8f9fa;border-radius:6px;padding:10px;">
+                    <strong style="color:#6f42c1;">弧 ${idx + 1}：${escapeStorylineText(arc.name)}</strong>
+                    <p class="mb-1 mt-1">${escapeStorylineText(arc.description)}</p>
+                    ${arc.turning_points && arc.turning_points.length > 0 ? `
+                        <small class="text-muted">转折点：${arc.turning_points.map(t => escapeStorylineText(t)).join(' | ')}</small>
+                    ` : ''}
+                </div>`;
+        });
+        html += `</div>`;
+    }
+
+    html += `</div>`;
+    return html;
+};
+
+// 渲染「分卷大纲」区块
+const renderVolumes = (storyline) => {
+    const volumes = storyline?.overall_storyline?.volumes || storyline?.volumes;
+    if (!volumes || !Array.isArray(volumes) || volumes.length === 0) return '';
+
+    let html = `
+        <div class="storyline-section mb-3" style="border-left: 3px solid #fd7e14; padding-left: 12px;">
+            <h6 class="text-primary mb-2"><i class="fas fa-book-open me-1"></i>分卷大纲（共 ${volumes.length} 卷）</h6>`;
+
+    volumes.forEach((vol, idx) => {
+        const volId = `volume-${idx}-${Date.now()}`;
+        html += `
+            <div class="volume-item mb-2" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;">
+                <div class="volume-header" onclick="document.getElementById('${volId}').style.display = document.getElementById('${volId}').style.display === 'none' ? 'block' : 'none'" style="background:#fff3e0;padding:10px;border-radius:6px 6px 0 0;cursor:pointer;">
+                    <strong style="color:#fd7e14;">📖 第${vol.volume_number || idx + 1}卷：${escapeStorylineText(vol.title || '未知')}</strong>
+                    ${vol.chapters_range ? `<span class="badge bg-secondary ms-2">${escapeStorylineText(vol.chapters_range)}</span>` : ''}
+                    <i class="fas fa-chevron-down float-end" style="margin-top:3px;"></i>
+                </div>
+                <div id="${volId}" class="volume-body" style="display:block;padding:10px;">
+                    <p class="mb-1"><strong>卷概要：</strong>${escapeStorylineText(vol.synopsis || '未知')}</p>
+                    <p class="mb-1"><strong>开篇状态：</strong>${escapeStorylineText(vol.opening || '未知')}</p>
+                    <p class="mb-1"><strong>结尾状态：</strong>${escapeStorylineText(vol.ending || '未知')}</p>
+                    ${vol.key_events && vol.key_events.length > 0 ? `
+                        <div class="mt-1">
+                            <strong>核心事件：</strong>
+                            <ul class="mb-1">${vol.key_events.map(e => `<li>${escapeStorylineText(e)}</li>`).join('')}</ul>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>`;
+    });
+
+    html += `</div>`;
+    return html;
 };
 
 // 拉取并填充「全书总故事线」卡片；无数据则隐藏整张卡片
@@ -2100,7 +2174,13 @@ const StepDetailsManager = {
                     </div>
                     
                     ${Utils.generateQualityAssessmentHTML(qualityAssessment, false)}
-                    
+
+                    <!-- 总体大纲 -->
+                    ${renderOverallOutline(storyline)}
+
+                    <!-- 分卷大纲 -->
+                    ${renderVolumes(storyline)}
+
                     <div class="storyline-details" id="storyline-content">
                         <div class="storyline-section mb-3">
                             <h6 class="text-primary">主要目标</h6>
@@ -2264,7 +2344,7 @@ const StepDetailsManager = {
                                 <button class="btn btn-warning btn-sm" onclick="regenerateStep('chapter_writing')">
                                     <i class="fas fa-redo me-2"></i>重新生成章节
                                 </button>
-                                <button class="btn btn-success btn-sm" onclick="downloadChapter('${firstChapter.chapter_number}')">
+                                <button class="btn btn-success btn-sm" onclick="downloadChapter('${firstChapter.chapter_number}', '${AppState.currentNovelId}')">
                                     <i class="fas fa-download me-2"></i>下载章节
                                 </button>
                             </div>
@@ -3324,8 +3404,14 @@ const displayChapterSelectionForEdit = (chapters) => {
                                     <button class="btn btn-outline-primary btn-sm me-2" onclick="viewChapterInModal('${AppState.selectedNovelId}', ${chapter.chapter_number})" title="查看章节内容">
                                         <i class="fas fa-eye"></i> 查看
                                     </button>
+                                    <button class="btn btn-info btn-sm me-2" onclick="aiOptimizeChapter('${AppState.selectedNovelId}', ${chapter.chapter_number})" title="AI优化章节">
+                                        <i class="fas fa-magic"></i> AI优化
+                                    </button>
                                     <button class="btn btn-warning btn-sm me-2" onclick="editChapter('${AppState.selectedNovelId}', ${chapter.chapter_number})" title="编辑章节">
                                         <i class="fas fa-edit"></i> 编辑
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" onclick="rollbackChapter('${AppState.selectedNovelId}', ${chapter.chapter_number}, '${(chapter.title || '第' + chapter.chapter_number + '章').replace(/'/g, "\\'")}')" title="回退到上次提交的版本">
+                                        <i class="fas fa-undo"></i> 回退
                                     </button>
                                     <button class="btn btn-danger btn-sm" onclick="deleteChapter('${AppState.selectedNovelId}', ${chapter.chapter_number}, '${chapter.title || `第${chapter.chapter_number}章`}')" title="删除章节">
                                         <i class="fas fa-trash"></i> 删除
@@ -3351,17 +3437,1036 @@ const displayChapterSelectionForEdit = (chapters) => {
 // 编辑章节
 window.editChapter = async (novelId, chapterNumber) => {
     try {
-        Utils.showMessage('章节编辑功能正在开发中...', 'info');
-        // TODO: 实现章节编辑功能
+        Utils.showLoading('加载章节数据...');
+        const response = await Utils.apiRequest(`/novels/${novelId}/chapters`);
+        Utils.hideLoading();
+
+        if (!response.success || !response.data) {
+            Utils.showMessage('加载章节失败', 'danger');
+            return;
+        }
+
+        const chapter = response.data.find(ch => ch.chapter_number == chapterNumber);
+        if (!chapter) {
+            Utils.showMessage(`未找到第${chapterNumber}章`, 'danger');
+            return;
+        }
+
+        const modalHtml = `
+            <div class="modal fade" id="editChapterModal" tabindex="-1">
+                <div class="modal-dialog modal-xl">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">编辑第${chapterNumber}章</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">章节标题</label>
+                                <input type="text" class="form-control" id="edit-chapter-title" value="${Utils.escapeHtml(chapter.title || '')}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">章节内容</label>
+                                <textarea class="form-control" id="edit-chapter-content" rows="25" style="font-family: 'Georgia', serif; line-height: 1.8;">${Utils.escapeHtml(chapter.content || '')}</textarea>
+                            </div>
+                            <div class="text-muted small">
+                                字数: <span id="edit-word-count">${chapter.word_count || chapter.content?.length || 0}</span>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                            <button type="button" class="btn btn-primary" onclick="saveChapterEdit('${novelId}', ${chapterNumber})">
+                                <i class="fas fa-save me-1"></i>保存修改
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const existingModal = document.getElementById('editChapterModal');
+        if (existingModal) existingModal.remove();
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modal = new bootstrap.Modal(document.getElementById('editChapterModal'));
+        modal.show();
+
+        // 实时字数统计
+        document.getElementById('edit-chapter-content').addEventListener('input', (e) => {
+            document.getElementById('edit-word-count').textContent = e.target.value.length;
+        });
+
     } catch (error) {
+        Utils.hideLoading();
         Utils.showMessage('编辑章节失败: ' + error.message, 'danger');
+    }
+};
+
+// 保存章节编辑
+window.saveChapterEdit = async (novelId, chapterNumber) => {
+    try {
+        const title = document.getElementById('edit-chapter-title').value.trim();
+        const content = document.getElementById('edit-chapter-content').value.trim();
+
+        if (!title && !content) {
+            Utils.showMessage('标题和内容不能同时为空', 'warning');
+            return;
+        }
+
+        Utils.showLoading('正在保存...');
+        const response = await Utils.apiRequest(`/novels/${novelId}/chapters/${chapterNumber}`, {
+            method: 'PUT',
+            body: JSON.stringify({ title, content })
+        });
+
+        if (response.success) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editChapterModal'));
+            modal.hide();
+            Utils.showMessage(`第${chapterNumber}章更新成功！`, 'success');
+            // 刷新章节列表显示
+            await loadNovelDetailsForContinuation(novelId);
+        } else {
+            Utils.showMessage(response.error || '保存失败', 'danger');
+        }
+    } catch (error) {
+        Utils.showMessage('保存章节失败: ' + error.message, 'danger');
+    } finally {
+        Utils.hideLoading();
+    }
+};
+
+// AI优化章节 - 弹出优化弹窗
+window.aiOptimizeChapter = async (novelId, chapterNumber) => {
+    try {
+        // 加载章节列表找到目标章节
+        const chaptersResponse = await Utils.apiRequest(`/novels/${novelId}/chapters`);
+        if (!chaptersResponse.success) {
+            Utils.showMessage('获取章节列表失败', 'danger');
+            return;
+        }
+        const chapters = chaptersResponse.data;
+        const chapter = chapters.find(ch => ch.chapter_number === chapterNumber);
+        if (!chapter) {
+            Utils.showMessage(`未找到第${chapterNumber}章`, 'warning');
+            return;
+        }
+
+        // 移除已有弹窗
+        const existingModal = document.getElementById('aiOptimizeModal');
+        if (existingModal) existingModal.remove();
+
+        const chapterTitle = chapter.title || `第${chapterNumber}章`;
+        const modalHtml = `
+            <div class="modal fade" id="aiOptimizeModal" tabindex="-1" data-bs-backdrop="static" data-novel-id="${novelId}" data-chapter-num="${chapterNumber}">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header bg-gradient-primary text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h5 class="modal-title"><i class="fas fa-magic me-2"></i>AI优化 - ${Utils.escapeHtml(chapterTitle)}</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <!-- 质量评估区域 -->
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <button type="button" class="btn btn-outline-primary" id="btn-assess-quality" onclick="assessChapterQuality('${novelId}', ${chapterNumber})">
+                                        <i class="fas fa-clipboard-check me-2"></i>质量评估
+                                    </button>
+                                    <span id="assess-status" class="ms-2 text-muted"></span>
+                                </div>
+                            </div>
+                            <div id="quality-result" class="mb-3" style="display:none;"></div>
+
+                            <!-- 优化需求区域 -->
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label class="form-label fw-bold mb-0"><i class="fas fa-lightbulb me-2"></i>优化需求</label>
+                                        <div>
+                                            <button type="button" class="btn btn-outline-info btn-sm" id="btn-dialogue-start" onclick="startRequirementDialogue('${novelId}', ${chapterNumber})">
+                                                <i class="fas fa-comments me-1"></i>对话确认需求
+                                            </button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-manual-input" style="display:none;" onclick="switchToManualInput()">
+                                                <i class="fas fa-pencil-alt me-1"></i>手动输入
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="dialogue-container" class="dialogue-container mb-2" style="display:none;">
+                                        <!-- 对话消息动态插入 -->
+                                    </div>
+                                    <div id="manual-input-area">
+                                        <textarea class="form-control" id="optimize-requirements" rows="3" placeholder="例如：加强主角心理描写，增加冲突张力，让对话更自然..."></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 修改范围选择 -->
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <label class="form-label fw-bold"><i class="fas fa-bullseye me-2"></i>修改范围</label>
+                                    <div class="btn-group w-100" role="group" id="optimize-scope-group">
+                                        <input type="radio" class="btn-check" name="optimize-scope" value="minor" id="scope-minor" checked>
+                                        <label class="btn btn-outline-secondary" for="scope-minor"><i class="fas fa-pencil-alt me-1"></i>小改<br><small class="text-muted">改几句措辞</small></label>
+                                        <input type="radio" class="btn-check" name="optimize-scope" value="medium" id="scope-medium">
+                                        <label class="btn btn-outline-secondary" for="scope-medium"><i class="fas fa-edit me-1"></i>中改<br><small class="text-muted">调整段落节奏</small></label>
+                                        <input type="radio" class="btn-check" name="optimize-scope" value="major" id="scope-major">
+                                        <label class="btn btn-outline-secondary" for="scope-major"><i class="fas fa-sledgehammer me-1"></i>大改<br><small class="text-muted">大幅重写段落</small></label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <button type="button" class="btn btn-success" id="btn-start-optimize" onclick="startChapterOptimize('${novelId}', ${chapterNumber})">
+                                        <i class="fas fa-rocket me-2"></i>开始优化
+                                    </button>
+                                    <span id="optimize-status" class="ms-2 text-muted"></span>
+                                </div>
+                            </div>
+
+                            <!-- 优化结果预览区域 -->
+                            <div id="optimize-result" class="mt-3" style="display:none;">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="fw-bold mb-0"><i class="fas fa-file-alt me-2"></i>优化结果预览</h6>
+                                    <div>
+                                        <span class="badge bg-info me-2" id="optimize-word-count">0字</span>
+                                        <span class="badge bg-success" id="optimize-changes"></span>
+                                    </div>
+                                </div>
+                                <textarea class="form-control" id="optimize-preview-content" rows="20" style="font-family: 'Georgia', serif; line-height: 1.8;"></textarea>
+                                <div class="d-flex justify-content-end mt-3 gap-2">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">放弃</button>
+                                    <button type="button" class="btn btn-primary" onclick="acceptChapterOptimize('${novelId}', ${chapterNumber})">
+                                        <i class="fas fa-check-circle me-2"></i>接受并保存
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modal = new bootstrap.Modal(document.getElementById('aiOptimizeModal'));
+        modal.show();
+
+        // 加载缓存的质量报告
+        var resultDiv = document.getElementById('quality-result');
+        if (chapter.quality_assessment && chapter.quality_assessment.overall_score !== undefined) {
+            // 有独立质量评估缓存（格式含 overall_score/dimensions）
+            renderQualityAssessment(resultDiv, chapter.quality_assessment);
+            // 追加时间标记
+            resultDiv.querySelector('.card-body').insertAdjacentHTML('afterbegin',
+                '<small class="text-muted"><i class="fas fa-history me-1"></i>缓存</small>');
+        } else if (chapter.quality_report && Object.keys(chapter.quality_report).length > 0) {
+            // 有优化附带的质量报告（格式含 improvement_areas/priority_level）
+            var report = chapter.quality_report;
+            var html = '<div class="p-3 border rounded" style="background:#f8f9fa;">';
+            html += '<h6 class="fw-bold mb-2"><i class="fas fa-history me-2"></i>上次质量报告（缓存）</h6>';
+            html += '<div class="row mb-2">';
+            var priority = report.priority_level || (report.improvement_summary && report.improvement_summary.priority_level) || '';
+            if (priority) {
+                var prioClass = priority === 'high' ? 'bg-danger' : priority === 'medium' ? 'bg-warning' : 'bg-info';
+                html += '<div class="col-md-6"><span class="badge ' + prioClass + '">优先级: ' + priority + '</span></div>';
+            }
+            var areas = report.improvement_areas || (report.improvement_summary && report.improvement_summary.improvement_areas) || [];
+            if (areas.length > 0) {
+                html += '<div class="col-md-6 text-end"><small class="text-muted">改进领域: ' + areas.join(', ') + '</small></div>';
+            }
+            html += '</div>';
+            var issues = report.specific_issues || (report.improvement_summary && report.improvement_summary.specific_issues) || [];
+            if (issues.length > 0) {
+                html += '<ul class="mb-2 small">';
+                issues.forEach(function(issue) {
+                    html += '<li>' + Utils.escapeHtml(issue) + '</li>';
+                });
+                html += '</ul>';
+            }
+            var strategies = (report.improvement_summary && report.improvement_summary.improvement_strategies) || [];
+            if (strategies.length > 0) {
+                html += '<p class="mb-0 small text-muted"><i class="fas fa-lightbulb me-1"></i>';
+                html += strategies.join('；');
+                html += '</p>';
+            }
+            html += '</div>';
+            resultDiv.innerHTML = html;
+            resultDiv.style.display = 'block';
+        }
+    } catch (error) {
+        Utils.showMessage('打开AI优化失败: ' + error.message, 'danger');
+    }
+};
+
+// 渲染质量评估结果（可复用）
+var renderQualityAssessment = function(resultDiv, q) {
+    var scoreClass = q.overall_score >= 80 ? 'success' : q.overall_score >= 60 ? 'warning' : 'danger';
+    var dimLabels = {
+        coherence: '情节连贯性', characterization: '人物立体度',
+        writing_style: '语言风格', appeal: '创新吸引力', consistency: '一致性'
+    };
+    var conDimLabels = {
+        character_consistency: '人物一致性', plot_continuity: '情节连续性',
+        world_consistency: '世界观一致', foreshadowing_continuity: '伏笔延续',
+        style_consistency: '风格一致'
+    };
+
+    var dimBars = [];
+    Object.keys(dimLabels).forEach(function(key) {
+        var val = (q.dimensions && q.dimensions[key]) ? q.dimensions[key] : 0;
+        var barClass = val >= 80 ? 'bg-success' : val >= 60 ? 'bg-warning' : 'bg-danger';
+        dimBars.push(
+            '<div class="col-md-6 mb-2">' +
+            '<div class="d-flex justify-content-between small"><span>' + dimLabels[key] + '</span><span>' + val + '分</span></div>' +
+            '<div class="progress" style="height:6px"><div class="progress-bar ' + barClass + '" style="width:' + val + '%"></div></div>' +
+            '</div>'
+        );
+    });
+    if (q.consistency_details) {
+        Object.keys(conDimLabels).forEach(function(key) {
+            var val = (q.consistency_details && q.consistency_details[key]) ? q.consistency_details[key] : 0;
+            var barClass = val >= 80 ? 'bg-success' : val >= 60 ? 'bg-warning' : 'bg-danger';
+            dimBars.push(
+                '<div class="col-md-6 mb-2">' +
+                '<div class="d-flex justify-content-between small"><span>' + conDimLabels[key] + '</span><span>' + val + '分</span></div>' +
+                '<div class="progress" style="height:6px"><div class="progress-bar ' + barClass + '" style="width:' + val + '%"></div></div>' +
+                '</div>'
+            );
+        });
+    }
+
+    var suggestionsHtml = '';
+    if (q.suggestions && q.suggestions.length > 0) {
+        var items = q.suggestions.map(function(s) {
+            return '<li class="list-group-item py-1 small" style="cursor:pointer" onclick="var el=document.getElementById(\'optimize-requirements\');el.value=el.value+\'\\n\'+this.textContent.trim()" title="点击采纳"><i class="fas fa-plus-circle text-success me-1"></i>' + Utils.escapeHtml(s) + '</li>';
+        }).join('');
+        suggestionsHtml = '<div class="mt-3"><h6 class="text-warning"><i class="fas fa-lightbulb me-1"></i>改进建议</h6><ul class="list-group list-group-flush">' + items + '</ul><small class="text-muted">点击建议可自动填入优化需求</small></div>';
+    }
+
+    resultDiv.innerHTML =
+        '<div class="card border-' + scoreClass + '">' +
+        '<div class="card-body">' +
+        '<div class="d-flex align-items-center mb-3">' +
+        '<span class="badge bg-' + scoreClass + ' fs-5 me-3">' + q.overall_score + '分</span>' +
+        '<span class="badge bg-' + scoreClass + ' me-2">' + (q.quality_level || '') + '</span>' +
+        (q.strengths && q.strengths.length > 0 ? '<small class="text-success"><i class="fas fa-check-circle me-1"></i>优点: ' + q.strengths.slice(0, 3).join(', ') + '</small>' : '') +
+        '</div>' +
+        '<div class="row">' + dimBars.join('') + '</div>' +
+        suggestionsHtml +
+        '</div></div>';
+    resultDiv.style.display = 'block';
+};
+
+// 质量评估章节
+window.assessChapterQuality = async (novelId, chapterNumber) => {
+    const btn = document.getElementById('btn-assess-quality');
+    const status = document.getElementById('assess-status');
+    const resultDiv = document.getElementById('quality-result');
+
+    btn.disabled = true;
+    status.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>正在评估...';
+
+    try {
+        const response = await Utils.apiRequest('/novels/' + novelId + '/chapters/' + chapterNumber + '/quality', { method: 'POST' });
+        if (!response.success) {
+            status.innerHTML = '<span class="text-danger"><i class="fas fa-exclamation-circle me-1"></i>' + Utils.escapeHtml(response.error || '') + '</span>';
+            btn.disabled = false;
+            return;
+        }
+
+        renderQualityAssessment(resultDiv, response.data);
+        status.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-1"></i>评估完成</span>';
+    } catch (error) {
+        status.innerHTML = '<span class="text-danger">评估失败: ' + error.message + '</span>';
+    } finally {
+        btn.disabled = false;
+    }
+};
+
+// ── 对话式需求确认 ──
+window._dialogueStore = {}; // key: novelId_chapterNum → state 持久化
+
+var _getDialogueKey = function(novelId, chNum) { return novelId + '_' + chNum; };
+
+// 获取或初始化对话状态
+var _getDialogueState = function(novelId, chNum) {
+    var key = _getDialogueKey(novelId, chNum);
+    if (!window._dialogueStore[key]) {
+        window._dialogueStore[key] = { messages: [], round: 0, chapterTitle: '', chapterSummary: '', tags: {}, done: false };
+    }
+    return window._dialogueStore[key];
+};
+
+// 保存对话上下文（章节信息）
+var _saveDialogueContext = function(novelId, chNum, chapterTitle, chapterSummary, tags) {
+    var s = _getDialogueState(novelId, chNum);
+    s.chapterTitle = chapterTitle;
+    s.chapterSummary = chapterSummary;
+    s.tags = tags;
+};
+
+// 开始对话确认需求
+window.startRequirementDialogue = async (novelId, chapterNumber) => {
+    // 清理上轮的选中方案
+    window._selectedPlan = null;
+
+    var container = document.getElementById('dialogue-container');
+    var manualArea = document.getElementById('manual-input-area');
+    var startBtn = document.getElementById('btn-dialogue-start');
+    var manualBtn = document.getElementById('btn-manual-input');
+
+    // 切换 UI
+    container.style.display = 'block';
+    manualArea.style.display = 'none';
+    startBtn.style.display = 'none';
+    manualBtn.style.display = 'inline-block';
+
+    var state = _getDialogueState(novelId, chapterNumber);
+
+    // 如果有已完成的历史对话，先显示恢复选项
+    if (state.messages.length > 0 && state.done) {
+        container.innerHTML = '<div class="text-center py-2"><p class="text-muted mb-2">上次对话已完成，需求已确认</p>' +
+            '<button class="btn btn-outline-info btn-sm me-2" onclick="window._resumeDialogue()"><i class="fas fa-history me-1"></i>查看上次对话</button>' +
+            '<button class="btn btn-outline-danger btn-sm" onclick="window._resetAndStartDialogue()"><i class="fas fa-redo me-1"></i>重新开始</button></div>';
+        return;
+    }
+    if (state.messages.length > 0 && !state.done) {
+        // 有未完成的对话
+        container.innerHTML = '<div class="text-center py-2"><p class="text-muted mb-2">检测到上次未完成的对话</p>' +
+            '<button class="btn btn-outline-info btn-sm me-2" onclick="window._resumeDialogue()"><i class="fas fa-play me-1"></i>继续对话</button>' +
+            '<button class="btn btn-outline-danger btn-sm" onclick="window._resetAndStartDialogue()"><i class="fas fa-redo me-1"></i>重新开始</button></div>';
+        return;
+    }
+
+    // 新对话：重置状态
+    state.messages = [];
+    state.round = 0;
+    state.done = false;
+    container.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>AI 正在准备提问...</div>';
+
+    // 获取章节信息
+    try {
+        var chaptersResp = await Utils.apiRequest('/novels/' + novelId + '/chapters');
+        var chapter = null;
+        if (chaptersResp.success) {
+            chapter = (chaptersResp.data || []).find(function(ch) { return ch.chapter_number === chapterNumber; });
+        }
+        var chapterTitle = chapter ? (chapter.title || '第' + chapterNumber + '章') : '第' + chapterNumber + '章';
+        var chapterSummary = chapter ? (chapter.summary || '') : '';
+
+        // 获取 tags
+        var metaResp = await Utils.apiRequest('/novels/' + novelId + '/data/metadata');
+        var tags = {};
+        if (metaResp.success && metaResp.data && metaResp.data.selected_tags) {
+            tags = metaResp.data.selected_tags;
+        }
+
+        // 调用对话端点
+        var resp = await Utils.apiRequest('/novels/' + novelId + '/chapters/' + chapterNumber + '/improve/dialogue', {
+            method: 'POST',
+            body: JSON.stringify({
+                messages: [],
+                chapter_summary: chapterSummary,
+                chapter_title: chapterTitle,
+                tags: tags
+            })
+        });
+
+        if (!resp.success) {
+            container.innerHTML = '<div class="alert alert-warning py-2">对话启动失败，请使用手动输入</div>';
+            return;
+        }
+
+        var data = resp.data;
+        state.messages.push({ role: 'assistant', content: data.question, options: data.options || [] });
+        state.round = 1;
+        _saveDialogueContext(novelId, chapterNumber, chapterTitle, chapterSummary, tags);
+        renderDialogue(data, novelId, chapterNumber);
+
+    } catch (e) {
+        container.innerHTML = '<div class="alert alert-warning py-2">对话启动失败: ' + e.message + '</div>';
+    }
+};
+
+// 恢复对话
+window._resumeDialogue = function() {
+    var modal = document.getElementById('aiOptimizeModal');
+    var novelId = modal ? modal.getAttribute('data-novel-id') : '';
+    var chNum = modal ? parseInt(modal.getAttribute('data-chapter-num')) : 0;
+    if (!novelId || !chNum) return;
+    var state = _getDialogueState(novelId, chNum);
+    if (state.done) {
+        // 已完成：重新展示最后状态 + 确认信息
+        document.getElementById('dialogue-container').style.display = 'block';
+        document.getElementById('manual-input-area').style.display = 'none';
+        document.getElementById('btn-dialogue-start').style.display = 'none';
+        document.getElementById('btn-manual-input').style.display = 'inline-block';
+        // 重建渲染
+        var lastMsg = state.messages[state.messages.length - 1] || {};
+        renderDialogue({
+            question: lastMsg.content || '需求已确认',
+            options: [],
+            stage: 'done',
+            confirmed_requirements: state.confirmedRequirements || '',
+            suggested_scope: state.suggestedScope || 'minor'
+        }, novelId, chNum);
+    } else {
+        // 未完成：渲染历史 + 最后一轮 AI 提问
+        startRequirementDialogueWithState(novelId, chNum);
+    }
+};
+
+window._resetAndStartDialogue = function() {
+    var modal = document.getElementById('aiOptimizeModal');
+    var novelId = modal ? modal.getAttribute('data-novel-id') : '';
+    var chNum = modal ? parseInt(modal.getAttribute('data-chapter-num')) : 0;
+    if (!novelId || !chNum) return;
+    var state = _getDialogueState(novelId, chNum);
+    state.messages = [];
+    state.round = 0;
+    state.done = false;
+    startRequirementDialogue(novelId, chNum);
+};
+
+// 从已有状态恢复（渲染历史 + 调 API 拿下一轮提问）
+var startRequirementDialogueWithState = async function(novelId, chNum) {
+    var container = document.getElementById('dialogue-container');
+    var state = _getDialogueState(novelId, chNum);
+    container.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>恢复中...</div>';
+
+    try {
+        var resp = await Utils.apiRequest('/novels/' + novelId + '/chapters/' + chNum + '/improve/dialogue', {
+            method: 'POST',
+            body: JSON.stringify({
+                messages: state.messages,
+                chapter_summary: state.chapterSummary,
+                chapter_title: state.chapterTitle,
+                tags: state.tags
+            })
+        });
+        if (!resp.success) throw new Error(resp.error || '恢复失败');
+        var data = resp.data;
+        state.round++;
+        renderDialogue(data, novelId, chNum);
+    } catch (e) {
+        container.innerHTML = '<div class="alert alert-warning py-2">恢复失败: ' + e.message + '</div>';
+    }
+};
+
+// 渲染对话
+var renderDialogue = function(data, novelId, chapterNumber) {
+    var container = document.getElementById('dialogue-container');
+    var state = _getDialogueState(novelId, chapterNumber);
+
+    var html = '';
+
+    // 渲染历史消息
+    for (var i = 0; i < state.messages.length; i++) {
+        var msg = state.messages[i];
+        if (msg.role === 'assistant') {
+            html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(msg.content) + '</div></div>';
+        } else {
+            html += '<div class="dialogue-msg dialogue-user"><div class="dialogue-bubble user-bubble">' + Utils.escapeHtml(msg.content) + '</div></div>';
+        }
+    }
+
+    // 当前 AI 问题 + 选项
+    if (data.stage === 'confirming') {
+        // 确认阶段
+        html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(data.question) + '</div>';
+        html += '<div class="chat-quick-replies">';
+        (data.options || []).forEach(function(opt, idx) {
+            var cls = idx === 0 ? 'chat-reply-btn confirm' : 'chat-reply-btn secondary';
+            html += '<span class="' + cls + '" onclick="confirmDialogueOption(' + idx + ')">' + Utils.escapeHtml(opt) + '</span>';
+        });
+        html += '<div class="dialogue-custom-input mt-2" id="dialogue-custom-row">';
+        html += '<div class="input-group input-group-sm"><input type="text" class="form-control" id="dialogue-custom-input" placeholder="补充或修改需求...">';
+        html += '<button class="btn btn-outline-secondary" onclick="submitDialogueCustom()"><i class="fas fa-paper-plane"></i></button></div>';
+        html += '</div>';
+        html += '</div></div>';
+    } else if (data.stage === 'done') {
+        // 对话完成 → 自动获取优化方案提案
+        var reqs = data.confirmed_requirements || '';
+        var scope = data.suggested_scope || 'minor';
+        html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(data.question || '已确认需求') + '</div></div>';
+        html += '<div class="alert alert-success py-2 mt-2"><i class="fas fa-check-circle me-1"></i>需求已确认！AI 正在生成优化方案供您选择...</div>';
+        container.innerHTML = html;
+
+        // 保存确认结果到状态
+        state.confirmedRequirements = reqs;
+        state.suggestedScope = scope;
+        state.done = true;
+
+        // 填入 textarea 和 scope（备用）
+        document.getElementById('optimize-requirements').value = reqs;
+        var scopeRadio = document.querySelector('input[name="optimize-scope"][value="' + scope + '"]');
+        if (scopeRadio) scopeRadio.checked = true;
+
+        // 自动获取优化方案
+        _fetchProposals(novelId, chapterNumber, reqs, scope);
+        return;
+    } else {
+        // clarifying / opening
+        html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(data.question) + '</div>';
+        html += '<div class="chat-quick-replies">';
+        (data.options || []).forEach(function(opt) {
+            // "其他/自定义"选项不调用后端，改为聚焦输入框
+            if (opt.indexOf('其他') === 0 || opt.indexOf('自定义') >= 0 || opt.indexOf('手动输入') >= 0) {
+                html += '<span class="chat-reply-btn secondary" onclick="document.getElementById(\'dialogue-custom-input\').focus()">' + Utils.escapeHtml(opt) + '</span>';
+            } else {
+                html += '<span class="chat-reply-btn" onclick="selectDialogueOption(\'' + Utils.escapeHtml(opt).replace(/'/g, "\\'") + '\')">' + Utils.escapeHtml(opt) + '</span>';
+            }
+        });
+        html += '<div class="dialogue-custom-input mt-2" id="dialogue-custom-row">';
+        html += '<div class="input-group input-group-sm"><input type="text" class="form-control" id="dialogue-custom-input" placeholder="或直接输入你的想法...">';
+        html += '<button class="btn btn-outline-secondary" onclick="submitDialogueCustom()"><i class="fas fa-paper-plane"></i></button></div>';
+        html += '</div>';
+        html += '</div></div>';
+    }
+
+    container.innerHTML = html;
+
+    container.scrollIntoView({ behavior: 'smooth' });
+};
+
+// 获取当前对话的 novelId & chapterNumber（从 state key 反推）
+var _getActiveDialogueNovelInfo = function() {
+    // 从 modal data 属性获取
+    var modal = document.getElementById('aiOptimizeModal');
+    var novelId = modal ? modal.getAttribute('data-novel-id') : '';
+    var chNum = modal ? parseInt(modal.getAttribute('data-chapter-num')) : 0;
+    return { novelId: novelId, chapterNumber: chNum };
+};
+
+// 用户选择选项
+window.selectDialogueOption = async (option) => {
+    var container = document.getElementById('dialogue-container');
+    container.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>AI 思考中...</div>';
+
+    var info = _getActiveDialogueNovelInfo();
+    var state = _getDialogueState(info.novelId, info.chapterNumber);
+    state.messages.push({ role: 'user', content: option });
+    state.round++;
+
+    try {
+        var resp = await Utils.apiRequest('/novels/' + info.novelId + '/chapters/' + info.chapterNumber + '/improve/dialogue', {
+            method: 'POST',
+            body: JSON.stringify({
+                messages: state.messages,
+                chapter_summary: state.chapterSummary,
+                chapter_title: state.chapterTitle,
+                tags: state.tags
+            })
+        });
+
+        if (!resp.success) throw new Error(resp.error || '对话失败');
+
+        var data = resp.data;
+        state.messages.push({ role: 'assistant', content: data.question, options: data.options || [] });
+
+        renderDialogue(data, info.novelId, info.chapterNumber);
+
+    } catch (e) {
+        container.innerHTML = '<div class="alert alert-warning py-2">对话出错: ' + e.message + '</div>';
+    }
+};
+
+// 确认阶段的选择
+window.confirmDialogueOption = async (idx) => {
+    var container = document.getElementById('dialogue-container');
+    container.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>处理中...</div>';
+
+    var info = _getActiveDialogueNovelInfo();
+    var state = _getDialogueState(info.novelId, info.chapterNumber);
+
+    if (idx === 0) {
+        // 用户确认
+        state.messages.push({ role: 'user', content: '确认，开始优化' });
+        try {
+            var resp = await Utils.apiRequest('/novels/' + info.novelId + '/chapters/' + info.chapterNumber + '/improve/dialogue', {
+                method: 'POST',
+                body: JSON.stringify({
+                    messages: state.messages,
+                    chapter_summary: state.chapterSummary,
+                    chapter_title: state.chapterTitle,
+                    tags: state.tags
+                })
+            });
+            if (resp.success && resp.data.stage === 'done') {
+                renderDialogue(resp.data, info.novelId, info.chapterNumber);
+            } else {
+                var reqText = state.messages.filter(function(m) { return m.role === 'user'; }).map(function(m) { return m.content; }).join('；');
+                var doneData = {
+                    question: '需求已确认！已自动填入下方输入框。',
+                    stage: 'done',
+                    confirmed_requirements: reqText,
+                    suggested_scope: 'minor',
+                    options: []
+                };
+                renderDialogue(doneData, info.novelId, info.chapterNumber);
+            }
+        } catch (e) {
+            container.innerHTML = '<div class="alert alert-warning py-2">确认失败: ' + e.message + '</div>';
+        }
+    } else {
+        // 用户点"重新描述需求"或"还有补充" → 聚焦输入框让用户打字，不发后端
+        container.innerHTML = ''; // 恢复之前的对话内容
+        renderDialogue({
+            stage: 'clarifying',
+            question: '请输入您的补充或修改意见：',
+            options: []
+        }, info.novelId, info.chapterNumber);
+        setTimeout(function() {
+            var input = document.getElementById('dialogue-custom-input');
+            if (input) { input.focus(); input.placeholder = '请描述您的补充需求...'; }
+        }, 200);
+    }
+};
+
+// 提交自定义输入
+window.submitDialogueCustom = async () => {
+    var input = document.getElementById('dialogue-custom-input');
+    var text = input.value.trim();
+    if (!text) { input.focus(); return; }
+    await selectDialogueOption(text);
+};
+
+// 获取优化方案提案
+var _fetchProposals = async (novelId, chapterNumber, requirements, scope) => {
+    var container = document.getElementById('dialogue-container');
+    try {
+        var resp = await Utils.apiRequest('/novels/' + novelId + '/chapters/' + chapterNumber + '/improve/proposals', {
+            method: 'POST',
+            body: JSON.stringify({ requirements: requirements, scope: scope })
+        });
+        if (!resp.success) throw new Error(resp.error || '获取方案失败');
+        _renderProposals(resp.data, novelId, chapterNumber, requirements, scope);
+    } catch (e) {
+        container.innerHTML += '<div class="alert alert-warning py-2 mt-2">方案生成失败：' + e.message + ' <button class="btn btn-sm btn-outline-primary ms-2" onclick="startChapterOptimize(\'' + novelId + '\', ' + chapterNumber + ')">直接开始优化</button></div>';
+    }
+};
+
+// 渲染优化方案卡片
+var _renderProposals = (data, novelId, chapterNumber, requirements, scope) => {
+    var container = document.getElementById('dialogue-container');
+    var plans = data.plans || [];
+    if (!plans.length) {
+        container.innerHTML += '<div class="alert alert-warning py-2 mt-2">暂无方案，请直接开始优化</div>';
+        return;
+    }
+
+    var html = container.innerHTML; // 保留上面的 done 消息
+    html += '<div class="proposals-section mt-3">';
+    html += '<h6 class="fw-bold mb-2"><i class="fas fa-lightbulb text-warning me-2"></i>AI 为您生成以下优化方案，请选择一个：</h6>';
+
+    plans.forEach(function(plan, idx) {
+        var borderColor = idx === 0 ? 'border-primary' : 'border-secondary';
+        html += '<div class="card mb-2 proposal-card ' + borderColor + '" style="cursor:pointer" onclick="_selectProposal(' + idx + ')">';
+        html += '<div class="card-body py-2 px-3">';
+        html += '<div class="d-flex justify-content-between align-items-start">';
+        html += '<h6 class="card-title mb-1 fw-bold">' + (idx === 0 ? '⭐ ' : '') + Utils.escapeHtml(plan.title || '方案' + (idx + 1)) + '</h6>';
+        html += '<span class="badge bg-primary btn-sm" style="cursor:pointer">选这个</span>';
+        html += '</div>';
+        html += '<p class="card-text small mb-1">' + Utils.escapeHtml(plan.description || '') + '</p>';
+        html += '<p class="card-text small text-muted mb-1"><i class="fas fa-eye me-1"></i>' + Utils.escapeHtml(plan.expected_result || '') + '</p>';
+        if (plan.key_changes && plan.key_changes.length > 0) {
+            html += '<ul class="mb-0 small text-muted">';
+            plan.key_changes.forEach(function(c) {
+                html += '<li>' + Utils.escapeHtml(c) + '</li>';
+            });
+            html += '</ul>';
+        }
+        html += '</div></div>';
+    });
+
+    html += '<div class="d-flex gap-2 mt-2">';
+    html += '<button type="button" class="btn btn-outline-warning btn-sm" onclick="_regenerateProposals(\'' + novelId + '\', ' + chapterNumber + ', \'' + Utils.escapeHtml(requirements).replace(/'/g, "\\'") + '\', \'' + scope + '\')">';
+    html += '<i class="fas fa-sync-alt me-1"></i>不满意，补充需求重新生成</button>';
+    html += '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="startChapterOptimize(\'' + novelId + '\', ' + chapterNumber + ')">';
+    html += '<i class="fas fa-forward me-1"></i>跳过，直接开始优化</button>';
+    html += '</div>';
+    html += '</div>';
+
+    container.innerHTML = html;
+    container.scrollIntoView({ behavior: 'smooth' });
+
+    // 保存到 state
+    var state = _getDialogueState(novelId, chapterNumber);
+    state.proposals = plans;
+    state.proposalRequirements = requirements;
+};
+
+// 选择某个方案并开始优化
+window._selectProposal = (idx) => {
+    var info = _getActiveDialogueNovelInfo();
+    var state = _getDialogueState(info.novelId, info.chapterNumber);
+    var plan = (state.proposals || [])[idx];
+    if (!plan) return;
+
+    // 高亮选中的卡片
+    var cards = document.querySelectorAll('.proposal-card');
+    cards.forEach(function(c, i) {
+        if (i === idx) {
+            c.classList.add('border-primary', 'bg-light');
+            c.style.borderWidth = '2px';
+        } else {
+            c.style.opacity = '0.5';
+        }
+    });
+
+    // 保存选中方案并开始优化
+    window._selectedPlan = plan;
+    setTimeout(function() {
+        startChapterOptimize(info.novelId, info.chapterNumber);
+    }, 400);
+};
+
+// 补充需求重新生成方案
+window._regenerateProposals = async (novelId, chapterNumber, requirements, scope) => {
+    var supplement = prompt('请补充或修改需求描述（将基于已有需求重新生成方案）：', requirements);
+    if (!supplement || supplement.trim() === requirements) return;
+
+    var container = document.getElementById('dialogue-container');
+    var state = _getDialogueState(novelId, chapterNumber);
+    state.confirmedRequirements = supplement;
+    state.done = true;
+
+    // 更新 textarea
+    document.getElementById('optimize-requirements').value = supplement;
+
+    // 重新获取方案
+    container.innerHTML += '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>重新生成方案中...</div>';
+    container.scrollIntoView({ behavior: 'smooth' });
+    await _fetchProposals(novelId, chapterNumber, supplement, scope);
+};
+
+// 切换回手动输入
+window.switchToManualInput = () => {
+    document.getElementById('dialogue-container').style.display = 'none';
+    document.getElementById('manual-input-area').style.display = 'block';
+    document.getElementById('btn-dialogue-start').style.display = 'inline-block';
+    document.getElementById('btn-manual-input').style.display = 'none';
+    window._dialogueState = { messages: [], round: 0 };
+};
+
+// 开始优化章节
+window.startChapterOptimize = async (novelId, chapterNumber, previousReview) => {
+    var btn = document.getElementById('btn-start-optimize');
+    var statusEl = document.getElementById('optimize-status');
+    var requirements = document.getElementById('optimize-requirements').value.trim();
+
+    if (!requirements && !previousReview) {
+        Utils.showMessage('请输入优化需求，告诉AI你想怎么优化这章', 'warning');
+        document.getElementById('optimize-requirements').focus();
+        return;
+    }
+
+    var scope = document.querySelector('input[name="optimize-scope"]:checked')?.value || 'minor';
+    btn.disabled = true;
+    statusEl.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>AI正在优化章节，请稍候...';
+
+    try {
+        var body = { requirements: requirements, scope: scope };
+        if (previousReview) {
+            body.previous_review = previousReview;
+        }
+        if (window._selectedPlan) {
+            body.selected_plan = window._selectedPlan;
+        }
+        var response = await Utils.apiRequest('/novels/' + novelId + '/chapters/' + chapterNumber + '/improve', {
+            method: 'POST',
+            body: JSON.stringify(body)
+        });
+        if (!response.success) {
+            statusEl.innerHTML = '<span class="text-danger"><i class="fas fa-exclamation-circle me-1"></i>' + Utils.escapeHtml(response.error || '') + '</span>';
+            btn.disabled = false;
+            return;
+        }
+
+        var data = response.data;
+        var previewTextarea = document.getElementById('optimize-preview-content');
+        var improvedContent = data.improved_content || '';
+        previewTextarea.value = improvedContent;
+
+        var resultDiv = document.getElementById('optimize-result');
+
+        // ── 清理旧的评审区域和继续优化按钮 ──
+        var oldReview = resultDiv.querySelector('.optimize-review-banner');
+        if (oldReview) oldReview.remove();
+        var oldIssues = resultDiv.querySelector('.optimize-review-issues');
+        if (oldIssues) oldIssues.remove();
+        var oldContinueBtn = resultDiv.querySelector('#btn-continue-optimize');
+        if (oldContinueBtn) oldContinueBtn.remove();
+
+        // ── 评审状态条 ──
+        var reviewPassed = data.review_passed;
+        var reviewScore = data.review_score || 0;
+        var reviewRounds = data.review_rounds || 1;
+        var reviewNotes = data.review_notes || '';
+        var reviewDetails = data.review_details || {};
+        var reviewBannerClass = reviewPassed ? 'border-success bg-success-subtle' : 'border-warning bg-warning-subtle';
+        var reviewIcon = reviewPassed ? 'fa-check-circle text-success' : 'fa-exclamation-triangle text-warning';
+        var reviewTitle = reviewPassed ? '评审通过' : '评审未完全通过';
+        var reviewHtml = '<div class="optimize-review-banner p-3 mb-3 border rounded ' + reviewBannerClass + '">';
+        reviewHtml += '<h6 class="fw-bold"><i class="fas ' + reviewIcon + ' me-2"></i>' + reviewTitle + '（' + reviewScore + '分 / 经过' + reviewRounds + '轮优化）</h6>';
+        if (reviewNotes) reviewHtml += '<p class="mb-1">' + Utils.escapeHtml(reviewNotes) + '</p>';
+        reviewHtml += '<div class="row small mt-2">';
+        reviewHtml += '<div class="col-md-3"><span class="badge ' + (reviewDetails.requirement_met ? 'bg-success' : 'bg-warning') + '">需求满足: ' + (reviewDetails.requirement_met ? '✓' : '✗') + '</span></div>';
+        reviewHtml += '<div class="col-md-3"><span class="badge ' + (reviewDetails.scope_respected ? 'bg-success' : 'bg-warning') + '">范围遵守: ' + (reviewDetails.scope_respected ? '✓' : '✗') + '</span></div>';
+        reviewHtml += '</div>';
+        if (reviewDetails.issues && reviewDetails.issues.length > 0) {
+            reviewHtml += '<div class="optimize-review-issues mt-2"><small class="text-muted fw-bold">待改进:</small><ul class="mb-0 small">';
+            reviewDetails.issues.forEach(function(issue) {
+                reviewHtml += '<li>' + Utils.escapeHtml(issue) + '</li>';
+            });
+            reviewHtml += '</ul></div>';
+        }
+        reviewHtml += '</div>';
+        resultDiv.insertAdjacentHTML('afterbegin', reviewHtml);
+
+        // ── 质量报告 ──
+        var qualityReport = data.quality_report || {};
+        var existingReport = resultDiv.querySelector('.optimize-quality-report');
+        if (existingReport) existingReport.remove();
+        if (qualityReport.improvement_areas && qualityReport.improvement_areas.length > 0) {
+            var reportHtml = '<div class="optimize-quality-report mb-3 p-3 border rounded" style="background:#f8f9fa;">';
+            reportHtml += '<h6 class="fw-bold mb-2"><i class="fas fa-clipboard-check me-2"></i>质量报告</h6>';
+            reportHtml += '<div class="row">';
+            reportHtml += '<div class="col-md-6"><span class="badge ' + (qualityReport.priority_level === 'high' ? 'bg-danger' : qualityReport.priority_level === 'medium' ? 'bg-warning' : 'bg-info') + ' me-2">优先级: ' + (qualityReport.priority_level || 'normal') + '</span></div>';
+            reportHtml += '<div class="col-md-6 text-end"><small class="text-muted">改进领域: ' + qualityReport.improvement_areas.join(', ') + '</small></div>';
+            reportHtml += '</div>';
+            if (qualityReport.specific_issues && qualityReport.specific_issues.length > 0) {
+                reportHtml += '<ul class="mb-0 mt-2 small">';
+                qualityReport.specific_issues.forEach(function(issue) {
+                    reportHtml += '<li>' + Utils.escapeHtml(issue) + '</li>';
+                });
+                reportHtml += '</ul>';
+            }
+            reportHtml += '</div>';
+            resultDiv.insertAdjacentHTML('afterbegin', reportHtml);
+        }
+
+        // ── 评审不通过：显示"继续优化"按钮 ──
+        if (!reviewPassed) {
+            window._lastReviewDetails = reviewDetails;
+            window._lastNovelId = novelId;
+            window._lastChapterNum = chapterNumber;
+            var continueHtml = '<div id="btn-continue-optimize" class="d-flex justify-content-center mb-3">';
+            continueHtml += '<button type="button" class="btn btn-warning" onclick="window._continueOptimizeAfterReview()">';
+            continueHtml += '<i class="fas fa-redo me-2"></i>根据评审意见继续优化</button>';
+            continueHtml += '</div>';
+            var startBtnRow = document.getElementById('btn-start-optimize').closest('.row');
+            if (startBtnRow) startBtnRow.insertAdjacentHTML('afterend', continueHtml);
+        }
+
+        // 存储并暴露继续优化函数
+        window._continueOptimizeAfterReview = function() {
+            var review = window._lastReviewDetails;
+            if (!review) return;
+            // 将评审建议填入需求框
+            var reqEl = document.getElementById('optimize-requirements');
+            var suggestions = (review.suggestions || []).join('\n- ');
+            reqEl.value = (reqEl.value ? reqEl.value + '\n\n' : '') + '【根据评审继续优化】\n- ' + suggestions;
+            // 移除旧按钮
+            var oldBtn = document.getElementById('btn-continue-optimize');
+            if (oldBtn) oldBtn.remove();
+            // 用 previous_review 参数重新调用
+            startChapterOptimize(window._lastNovelId, window._lastChapterNum, review);
+        };
+
+        // 更新字数统计
+        var wordCount = improvedContent.replace(/\s/g, '').length;
+        document.getElementById('optimize-word-count').textContent = wordCount + '字';
+
+        if (data.original_content) {
+            var origLen = data.original_content.replace(/\s/g, '').length;
+            var newLen = wordCount;
+            var diff = newLen - origLen;
+            var diffStr = diff >= 0 ? '+' + diff + '字' : diff + '字';
+            document.getElementById('optimize-changes').textContent = data.changes_summary || '字数变化: ' + diffStr;
+        }
+
+        document.getElementById('optimize-result').style.display = 'block';
+        document.getElementById('optimize-result').scrollIntoView({ behavior: 'smooth' });
+        var finalMsg = reviewPassed
+            ? '<span class="text-success"><i class="fas fa-check-circle me-1"></i>优化完成（评审通过 ✅），请在下方预览后保存</span>'
+            : '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>优化完成（评审 ' + reviewScore + ' 分），可继续优化或直接保存</span>';
+        statusEl.innerHTML = finalMsg;
+    } catch (error) {
+        statusEl.innerHTML = '<span class="text-danger">优化失败: ' + error.message + '</span>';
+    } finally {
+        btn.disabled = false;
+    }
+};
+
+// 接受并保存优化结果
+window.acceptChapterOptimize = async (novelId, chapterNumber) => {
+    try {
+        var improvedContent = document.getElementById('optimize-preview-content').value.trim();
+        if (!improvedContent) {
+            Utils.showMessage('优化内容为空', 'warning');
+            return;
+        }
+
+        Utils.showLoading('正在保存优化结果...');
+        // 获取原标题作为title
+        var titleResponse = await Utils.apiRequest('/novels/' + novelId + '/chapters');
+        var title = '';
+        if (titleResponse.success) {
+            var ch = titleResponse.data.find(function(c) { return c.chapter_number === chapterNumber; });
+            if (ch) title = ch.title || '';
+        }
+
+        var response = await Utils.apiRequest('/novels/' + novelId + '/chapters/' + chapterNumber, {
+            method: 'PUT',
+            body: JSON.stringify({ title: title, content: improvedContent })
+        });
+
+        if (response.success) {
+            var modal = bootstrap.Modal.getInstance(document.getElementById('aiOptimizeModal'));
+            modal.hide();
+            Utils.showMessage('第' + chapterNumber + '章优化保存成功！', 'success');
+            // 刷新章节列表
+            await loadNovelDetailsForContinuation(novelId);
+        } else {
+            Utils.showMessage(response.error || '保存失败', 'danger');
+        }
+    } catch (error) {
+        Utils.showMessage('保存优化结果失败: ' + error.message, 'danger');
+    } finally {
+        Utils.hideLoading();
+    }
+};
+
+// 回退章节到上次 git 提交版本
+window.rollbackChapter = async (novelId, chapterNumber, chapterTitle) => {
+    if (!confirm('确定要回退"' + chapterTitle + '"到上次提交的版本吗？\n\n当前未保存的修改将丢失。')) {
+        return;
+    }
+    try {
+        Utils.showLoading('正在回退...');
+        const response = await Utils.apiRequest('/novels/' + novelId + '/chapters/' + chapterNumber + '/rollback', { method: 'POST' });
+        if (response.success) {
+            Utils.showMessage('第' + chapterNumber + '章已回退', 'success');
+            await loadNovelDetailsForContinuation(novelId);
+        } else {
+            Utils.showMessage(response.error || '回退失败', 'danger');
+        }
+    } catch (error) {
+        Utils.showMessage('回退失败: ' + error.message, 'danger');
+    } finally {
+        Utils.hideLoading();
     }
 };
 
 // 开始内容优化
 window.startContentOptimization = () => {
-    // 切换到创作工作流程页面，让用户优化基础内容
-    Navigation.showCreationWorkflow(AppState.selectedNovelId);
+    // 在续写模式下重新加载续写工作流，保持内容展示
+    if (AppState.currentNovelId) {
+        Navigation.showContinuationWorkflow(AppState.currentNovelId);
+    } else if (AppState.selectedNovelId) {
+        Navigation.showContinuationWorkflow(AppState.selectedNovelId);
+    } else {
+        Utils.showMessage('没有活跃的小说项目', 'warning');
+    }
 };
 
 
@@ -3724,7 +4829,8 @@ window.showContinuationChapterModal = async (novelId) => {
 };
 
 // 显示章节模态框
-const showChapterModal = (chapter) => {
+const showChapterModal = (chapter, novelId) => {
+    novelId = novelId || AppState.selectedNovelId || AppState.currentNovelId;
     const modalHtml = `
         <div class="modal fade" id="chapterModal" tabindex="-1">
             <div class="modal-dialog modal-xl">
@@ -3749,7 +4855,7 @@ const showChapterModal = (chapter) => {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                        <button type="button" class="btn btn-success" onclick="downloadChapter('${chapter.chapter_number}')">
+                        <button type="button" class="btn btn-success" onclick="downloadChapter('${chapter.chapter_number}', '${novelId}')">
                             <i class="fas fa-download me-2"></i>下载章节
                         </button>
                     </div>
@@ -3773,11 +4879,16 @@ const showChapterModal = (chapter) => {
 };
 
 // 下载章节
-window.downloadChapter = async (chapterNumber) => {
+window.downloadChapter = async (chapterNumber, novelId) => {
     try {
+        novelId = novelId || AppState.selectedNovelId || AppState.currentNovelId;
+        if (!novelId) {
+            Utils.showMessage('请先选择小说', 'warning');
+            return;
+        }
         Utils.showLoading('正在准备下载...');
-        
-        const response = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/chapters/${chapterNumber}/txt`, {
+
+        const response = await Utils.apiRequest(`/novels/${novelId}/chapters/${chapterNumber}/txt`, {
             method: 'POST'
         });
         
