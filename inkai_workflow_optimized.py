@@ -882,9 +882,10 @@ class InkAIWorkflowOptimized:
             "status": "success",
             "storyline": improved_storyline,
             "improvement_notes": result.get("improvement_notes", []),
+            "quality_assessment": new_quality_result,
             "next_step": "quality_assessment"
         }
-    
+
     def improve_continuation_chapter(self, novel_id: str = None, suggestions: List[str] = None) -> Dict[str, Any]:
         """改进续写章节"""
         print("开始改进续写章节...")
@@ -937,19 +938,35 @@ class InkAIWorkflowOptimized:
             
             # 保存改进后的章节到数据管理器
             self.data_manager.save_novel_data(
-                self.context.novel_id, 
-                "continuation_chapter", 
+                self.context.novel_id,
+                "continuation_chapter",
                 improved_chapter
             )
-            
+
+            # 对改进后的章节重新进行质量评估
+            print("对改进后的续写章节重新进行质量评估...")
+            chapter_content = improved_chapter.get("content", "")
+            quality_input = self.context.get_agent_input_data("quality_assessor", {
+                "content": improved_chapter,
+                "content_type": "story"
+            })
+            new_quality_result = self.quality_assessor.process(quality_input)
+            self.context.cache_quality_assessment("chapter", new_quality_result)
+            self.data_manager.save_novel_data(self.context.novel_id, "continuation_chapter_quality_assessment", new_quality_result)
+            print(f"续写章节改进后质量评估完成: {new_quality_result.get('quality_assessment', {}).get('overall_score', '未知')}分")
+
+            # 保存上下文
+            self.save_context()
+
             print("续写章节改进完成")
-            
+
             return {
                 "success": True,
                 "status": "success",
                 "improved_chapter": improved_chapter,
                 "improvement_plan": improved_result.get("improvement_plan", {}),
                 "improvement_summary": improved_result.get("improvement_summary", "章节已改进"),
+                "quality_assessment": new_quality_result,
                 "next_step": "save_chapter"
             }
             

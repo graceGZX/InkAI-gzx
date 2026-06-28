@@ -5758,20 +5758,19 @@ window.optimizeCharactersBasedOnQuality = async () => {
         Utils.hideLoading();
         
         if (response.success) {
-            Utils.showMessage('角色优化成功！', 'success');
-            
+            const result = response.data;
+
             // 刷新角色详情显示
             const characterDetailsElement = document.getElementById('character-content');
             if (characterDetailsElement) {
                 await StepDetailsManager.loadCharacterDetails(characterDetailsElement);
             }
-            
-            // 显示优化结果
-            const result = response.data;
+
+            // 展示优化后的新质量评估弹窗
             if (result.quality_assessment) {
-                const score = result.quality_assessment.overall_score;
-                const level = result.quality_assessment.quality_level;
-                Utils.showMessage(`优化完成！当前质量评分：${score}分 (${level})`, 'success');
+                showQualityAssessmentModal(result.quality_assessment, 'storyline');
+            } else {
+                Utils.showMessage('角色优化成功！', 'success');
             }
         } else {
             Utils.showMessage('角色优化失败: ' + (response.error || '未知错误'), 'danger');
@@ -5823,30 +5822,18 @@ window.optimizeStorylineBasedOnQuality = async () => {
         
         if (response.success) {
             const result = response.data;
-            
-            // 检查优化结果
-            if (result.status === 'success') {
+
+            // 展示优化后的新质量评估弹窗
+            if (result.quality_assessment) {
+                showQualityAssessmentModal(result.quality_assessment, 'storyline');
+            } else if (result.status === 'success') {
                 Utils.showMessage('故事线优化成功！', 'success');
-                
-                // 显示优化结果
-                if (result.quality_assessment) {
-                    const score = result.quality_assessment.overall_score;
-                    const level = result.quality_assessment.quality_level;
-                    Utils.showMessage(`优化完成！当前质量评分：${score}分 (${level})`, 'success');
-                }
             } else if (result.status === 'needs_improvement') {
                 Utils.showMessage('故事线已优化，但仍有改进空间', 'warning');
-                
-                // 显示优化结果
-                if (result.quality_assessment) {
-                    const score = result.quality_assessment.overall_score;
-                    const level = result.quality_assessment.quality_level;
-                    Utils.showMessage(`优化完成！当前质量评分：${score}分 (${level})`, 'warning');
-                }
             } else {
                 Utils.showMessage('故事线优化完成，但状态未知', 'info');
             }
-            
+
             // 刷新故事线详情显示
             const storylineDetailsElement = document.getElementById('storyline-content');
             if (storylineDetailsElement) {
@@ -6112,28 +6099,17 @@ window.optimizeContinuationStorylineBasedOnQuality = async () => {
         
         if (response.success) {
             const result = response.data;
-            if (result.status === 'success') {
+            // 展示优化后的新质量评估弹窗
+            if (result.quality_assessment) {
+                showQualityAssessmentModal(result.quality_assessment, 'storyline');
+            } else if (result.status === 'success') {
                 Utils.showMessage('续写故事线优化完成！', 'success');
-                
-                // 显示优化结果
-                if (result.quality_assessment) {
-                    const score = result.quality_assessment.overall_score;
-                    const level = result.quality_assessment.quality_level;
-                    Utils.showMessage(`优化完成！当前质量评分：${score}分 (${level})`, 'success');
-                }
             } else if (result.status === 'needs_improvement') {
                 Utils.showMessage('续写故事线已优化，但仍有改进空间', 'warning');
-                
-                // 显示优化结果
-                if (result.quality_assessment) {
-                    const score = result.quality_assessment.overall_score;
-                    const level = result.quality_assessment.quality_level;
-                    Utils.showMessage(`优化完成！当前质量评分：${score}分 (${level})`, 'warning');
-                }
             } else {
                 Utils.showMessage('续写故事线优化完成，但状态未知', 'info');
             }
-            
+
             // 只重新加载当前的故事线详情以显示优化结果
             const currentStepElement = document.querySelector('.step-item.current .step-details');
             if (currentStepElement) {
@@ -6252,14 +6228,14 @@ const showContinuationImprovementDialog = (type) => {
 // 确认续写改进
 window.confirmContinuationImprovement = async (type) => {
     const suggestions = document.getElementById('continuation-improvement-suggestions').value.trim();
-    
+
     try {
         Utils.showLoading(`正在改进续写${type}...`);
-        
+
         // 关闭模态框
         const modal = bootstrap.Modal.getInstance(document.getElementById('continuationImprovementModal'));
         modal.hide();
-        
+
         // 调用改进API
         let response;
         if (type === 'storyline') {
@@ -6277,11 +6253,19 @@ window.confirmContinuationImprovement = async (type) => {
                 })
             });
         }
-        
+
         Utils.hideLoading();
-        
+
         if (response.success) {
-            Utils.showMessage(`续写${type}改进成功！`, 'success');
+            const result = response.data;
+
+            // 展示优化后的新质量评估
+            if (result.quality_assessment) {
+                showQualityAssessmentModal(result.quality_assessment, type);
+            } else {
+                Utils.showMessage(`续写${type}改进成功！`, 'success');
+            }
+
             // 重新加载续写工作流程状态
             await ContinuationManager.loadContinuationWorkflow(AppState.currentNovelId);
         } else {
@@ -6291,6 +6275,64 @@ window.confirmContinuationImprovement = async (type) => {
         Utils.hideLoading();
         Utils.showMessage(`续写${type}改进失败: ` + error.message, 'danger');
     }
+};
+
+// 展示优化后的质量评估弹窗
+const showQualityAssessmentModal = (qualityAssessment, type) => {
+    const typeLabel = type === 'storyline' ? '故事线' : '章节';
+    const score = qualityAssessment.overall_score || qualityAssessment.quality_assessment?.overall_score || '未知';
+    const level = qualityAssessment.quality_level || qualityAssessment.quality_assessment?.quality_level || '';
+    const suggestions = qualityAssessment.suggestions || qualityAssessment.quality_assessment?.suggestions || [];
+    const scoreClass = score >= 80 ? 'text-success' : score >= 60 ? 'text-warning' : 'text-danger';
+    const scoreBgClass = score >= 80 ? 'bg-success' : score >= 60 ? 'bg-warning' : 'bg-danger';
+
+    const suggestionsHTML = suggestions.length > 0 ? `
+        <div class="mt-3">
+            <h6 class="text-warning"><i class="fas fa-lightbulb me-2"></i>改进建议</h6>
+            <ul class="list-group">
+                ${suggestions.map((s, i) => `<li class="list-group-item list-group-item-warning"><strong>${i + 1}.</strong> ${s}</li>`).join('')}
+            </ul>
+        </div>
+    ` : '';
+
+    const modalHtml = `
+        <div class="modal fade" id="qualityAssessmentResultModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header ${scoreBgClass} text-white">
+                        <h5 class="modal-title">
+                            <i class="fas fa-star me-2"></i>
+                            优化后${typeLabel}质量评估
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="text-center mb-4">
+                            <div class="display-4 ${scoreClass} fw-bold">${score} 分</div>
+                            <div class="text-muted">${level}</div>
+                        </div>
+                        ${suggestionsHTML}
+                        ${suggestions.length === 0 ? `
+                            <div class="alert alert-success text-center">
+                                <i class="fas fa-check-circle me-2"></i>质量评估通过，无需额外改进！
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">确定</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 移除已存在的模态框
+    const existingModal = document.getElementById('qualityAssessmentResultModal');
+    if (existingModal) existingModal.remove();
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modal = new bootstrap.Modal(document.getElementById('qualityAssessmentResultModal'));
+    modal.show();
 };
 
 // 清除续写章节错误缓存
