@@ -121,11 +121,54 @@ class WorkflowContext:
                 "novel_data": self.continuation_data.get("novel_data", {})
             })
         
+        # 注入用户写作规则（对写作相关 agent 生效）
+        if agent_type in ("chapter_writer", "storyline_generator", "quality_assessor"):
+            rules_context = self._load_rules_context()
+            if rules_context:
+                existing_req = base_data.get("user_requirements", "")
+                if existing_req:
+                    base_data["user_requirements"] = existing_req + "\n\n" + rules_context
+                else:
+                    base_data["user_requirements"] = rules_context
+
         # 合并额外数据
         if additional_data:
             base_data.update(additional_data)
-        
+
         return base_data
+
+    def get_user_requirements_with_rules(self) -> str:
+        """获取 user_requirements 并附加写作规则上下文（供续写流程直接调用）"""
+        req = self.user_requirements or ""
+        rules_context = self._load_rules_context()
+        if rules_context:
+            if req:
+                req = req + "\n\n" + rules_context
+            else:
+                req = rules_context
+        return req
+
+    def _load_rules_context(self) -> str:
+        """加载本小说的写作规则上下文（供 agent input 注入）"""
+        if not self.novel_id:
+            return ""
+        try:
+            import os, json, config as _cfg
+            rules_path = os.path.join(_cfg.NOVELS_DIR, self.novel_id, "rules.json")
+            if not os.path.exists(rules_path):
+                return ""
+            with open(rules_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            rules = data.get("rules", [])
+            prefs = data.get("global_preferences", {})
+            if not rules and not prefs:
+                return ""
+            # 用 RulesManager 的格式化方法
+            from novel_rules import RulesManager
+            rm = RulesManager(self.novel_id)
+            return rm.get_rules_context()
+        except Exception:
+            return ""
     
     def cache_result(self, key: str, result: Dict[str, Any]):
         """缓存智能体结果"""

@@ -1212,16 +1212,24 @@ const displayContinuationWorkflow = (continuationData) => {
                <i class="fas fa-bolt me-2"></i>
                快速续写
            </button>
+           <button class="btn btn-outline-purple btn-sm" onclick="showRulesPage()">
+               <i class="fas fa-book me-2"></i>小说规则
+           </button>
            <button class="btn btn-info btn-sm" onclick="checkQuickContinuationProgress()">
                <i class="fas fa-chart-line me-2"></i>
                查看进度
            </button>
                                 </div>
                             ` : `
-                                <button class="btn btn-secondary btn-lg" disabled>
-                                    <i class="fas fa-clock me-2"></i>
-                                    续写进行中
-                                </button>
+                                <div class="d-flex flex-column gap-2">
+                                    <button class="btn btn-secondary btn-lg" disabled>
+                                        <i class="fas fa-clock me-2"></i>
+                                        续写进行中
+                                    </button>
+                                    <button class="btn btn-outline-purple btn-sm" onclick="showRulesPage()">
+                                        <i class="fas fa-book me-2"></i>小说规则
+                                    </button>
+                                </div>
                             `}
                         </div>
                     </div>
@@ -1380,6 +1388,12 @@ const displayContinuationWorkflow = (continuationData) => {
                             </button>
                             <button class="btn btn-success btn-sm me-2" onclick="showQuickContinuationDialog()">
                                 <i class="fas fa-bolt me-2"></i>快速续写
+                            </button>
+                            <button class="btn btn-outline-purple btn-sm me-2" onclick="showRulesPage()">
+                                <i class="fas fa-book me-2"></i>小说规则
+                            </button>
+                            <button class="btn btn-warning btn-sm me-2 memory-save-btn" onclick="saveAgentMemory()">
+                                <i class="fas fa-brain me-2"></i>保存经验到记忆
                             </button>
                             <button class="btn btn-info btn-sm me-2" onclick="checkQuickContinuationProgress()">
                                 <i class="fas fa-chart-line me-2"></i>查看进度
@@ -2486,12 +2500,64 @@ const StepDetailsManager = {
     },
     
     loadContinuationStorylineImprovementDetails: async (contentElement) => {
-        contentElement.innerHTML = `
-            <div class="alert alert-info">
-                <i class="fas fa-info-circle me-2"></i>
-                故事线优化详情功能开发中...
-            </div>
-        `;
+        try {
+            const response = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/data/next_chapter_storyline`);
+            contentElement.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>加载中...</div>';
+
+            if (!response.success) {
+                contentElement.innerHTML = '<div class="alert alert-warning">暂无故事线数据，请先生成故事线</div>';
+                return;
+            }
+
+            const storyline = response.data;
+            let html = '<div class="step-detail-content">';
+            html += '<h6><i class="fas fa-route me-2"></i>续写故事线优化结果</h6>';
+
+            if (storyline.improvement_summary) {
+                html += '<div class="alert alert-success py-2"><i class="fas fa-check-circle me-1"></i>' + Utils.escapeHtml(storyline.improvement_summary) + '</div>';
+            }
+
+            const chNum = storyline.chapter_number || '?';
+
+            if (storyline.scene_setting) {
+                const s = storyline.scene_setting;
+                html += '<div class="storyline-section mb-2"><strong>场景设定（第' + chNum + '章）</strong><br>';
+                html += '时间：' + Utils.escapeHtml(s.time || '?') + ' | 地点：' + Utils.escapeHtml(s.location || '?') + '<br>';
+                html += '氛围：' + Utils.escapeHtml(s.atmosphere || '?') + ' | 天气：' + Utils.escapeHtml(s.weather || '?');
+                html += '</div>';
+            }
+
+            if (storyline.plot_points && storyline.plot_points.length > 0) {
+                html += '<div class="storyline-section mb-2"><strong>情节要点</strong><ul>';
+                storyline.plot_points.forEach(p => { html += '<li>' + Utils.escapeHtml(typeof p === "string" ? p : (p.event || JSON.stringify(p))) + '</li>'; });
+                html += '</ul></div>';
+            }
+
+            if (storyline.key_events && storyline.key_events.length > 0) {
+                html += '<div class="storyline-section mb-2"><strong>关键事件</strong><ul>';
+                storyline.key_events.forEach(e => { html += '<li>' + Utils.escapeHtml(e) + '</li>'; });
+                html += '</ul></div>';
+            }
+
+            if (storyline.foreshadowing && storyline.foreshadowing.length > 0) {
+                html += '<div class="storyline-section mb-2"><strong>伏笔</strong><ul>';
+                storyline.foreshadowing.forEach(f => { html += '<li>' + Utils.escapeHtml(typeof f === "string" ? f : (f.description || f.content || JSON.stringify(f))) + '</li>'; });
+                html += '</ul></div>';
+            }
+
+            if (storyline.chapter_ending) {
+                html += '<div class="storyline-section mb-2"><strong>章末钩子</strong><br>' + Utils.escapeHtml(storyline.chapter_ending) + '</div>';
+            }
+
+            if (storyline.writing_notes) {
+                html += '<div class="storyline-section mb-2"><strong>写作备注</strong><br>' + Utils.escapeHtml(storyline.writing_notes) + '</div>';
+            }
+
+            html += '</div>';
+            contentElement.innerHTML = html;
+        } catch (e) {
+            contentElement.innerHTML = '<div class="alert alert-warning">加载故事线失败: ' + e.message + '</div>';
+        }
     },
     
     loadContinuationQualityAssessmentDetails: async (contentElement) => {
@@ -3189,6 +3255,26 @@ const showNovelDetailForContinuation = (novel, chapters) => {
                        </button>
                        <button class="btn btn-info btn-sm mt-2" onclick="checkQuickContinuationProgress()">
                            <i class="fas fa-chart-line me-2"></i>查看进度
+                       </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 小说规则 -->
+                        <div class="col-md-4">
+                            <div class="continuation-option-card h-100">
+                                <div class="card h-100 border-2 border-purple">
+                                    <div class="card-body text-center">
+                                        <div class="option-icon mb-3">
+                                            <i class="fas fa-book fa-3x" style="color:#7c3aed;"></i>
+                                        </div>
+                                        <h6 class="card-title">小说规则</h6>
+                                        <p class="card-text text-muted small">
+                                            与AI对话建立写作规则，控制文笔、节奏、人物等方方面面
+                                        </p>
+                       <button class="btn btn-purple" onclick="showRulesPage()" style="background:#7c3aed;color:#fff;">
+                           <i class="fas fa-comments me-2"></i>管理规则
                        </button>
                                     </div>
                                 </div>
@@ -3958,8 +4044,12 @@ var renderDialogue = function(data, novelId, chapterNumber) {
 
     var html = '';
 
-    // 渲染历史消息
-    for (var i = 0; i < state.messages.length; i++) {
+    // 渲染历史消息（跳过最后一条 assistant 消息，因为下面会作为"当前问题"渲染）
+    var renderCount = state.messages.length;
+    if (renderCount > 0 && state.messages[renderCount - 1].role === 'assistant') {
+        renderCount--; // 最后一条 assistant 消息留给下方 data.question 渲染
+    }
+    for (var i = 0; i < renderCount; i++) {
         var msg = state.messages[i];
         if (msg.role === 'assistant') {
             html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(msg.content) + '</div></div>';
@@ -7461,3 +7551,372 @@ const showDeleteConfirmDialog = (title, message, type = 'warning') => {
 window.goToHome = Navigation.goToHome;
 window.goToNovelList = Navigation.goToNovelList;
 window.goToContinuationNovelList = Navigation.goToContinuationNovelList;
+
+// ──────────────────────────────────────────────
+// 小说规则管理 (Novel Rules) — 2026-06-28
+// ──────────────────────────────────────────────
+
+window._rulesDialogue = { messages: [], done: false };
+
+window.showRulesPage = function () {
+    Navigation.showPage('rules-management-page');
+    loadRulesList();
+};
+
+window.goBackToContinuation = function () {
+    Navigation.showPage('continuation-workflow-page');
+};
+
+var loadRulesList = function () {
+    var novelId = AppState.selectedNovelId;
+    if (!novelId) return;
+    Utils.apiRequest('/novels/' + novelId + '/rules').then(function (resp) {
+        if (!resp.success) return;
+        renderRulesList(resp.data);
+    });
+};
+
+var renderRulesList = function (data) {
+    var rules = data.rules || [];
+    var prefs = data.global_preferences || {};
+    var container = document.getElementById('rules-list');
+    var countEl = document.getElementById('rules-count');
+    if (countEl) countEl.textContent = rules.length + ' 条';
+
+    if (rules.length === 0 && Object.keys(prefs).length === 0) {
+        container.innerHTML = '<div class="text-center py-5 text-muted"><i class="fas fa-inbox fa-3x mb-3"></i><p>暂无规则，点击「AI 对话建立规则」开始</p></div>';
+        return;
+    }
+
+    var catLabels = { writing_style: '文笔风格', character: '人物塑造', plot: '情节安排', dialogue: '对话写法', pacing: '节奏控制', worldbuilding: '世界观构建', general: '通用规则' };
+    var priorityLabels = { must: '必须', should: '建议', may: '可尝试' };
+
+    var html = '';
+    if (Object.keys(prefs).length > 0) {
+        html += '<div class="novel-rules-card" style="background:#f0ebff;border-color:#c4b5fd;">';
+        html += '<div class="d-flex justify-content-between align-items-start mb-2">';
+        html += '<span class="fw-bold"><i class="fas fa-cog me-2"></i>全局偏好</span>';
+        html += '</div>';
+        if (prefs.style_notes) html += '<p class="mb-1 small text-muted"><strong>风格备注：</strong>' + Utils.escapeHtml(prefs.style_notes) + '</p>';
+        var taboos = prefs.taboos || [];
+        if (taboos.length > 0) html += '<p class="mb-0 small text-muted"><strong>禁忌：</strong>' + Utils.escapeHtml(taboos.join(' / ')) + '</p>';
+        html += '</div>';
+    }
+
+    rules.forEach(function (rule) {
+        var cat = catLabels[rule.category] || rule.category;
+        var prio = rule.priority || 'should';
+        html += '<div class="novel-rules-card">';
+        html += '<div class="d-flex justify-content-between align-items-start mb-1">';
+        html += '<span class="fw-bold">' + Utils.escapeHtml(rule.title || '未命名规则') + '</span>';
+        html += '<div class="rule-actions">';
+        html += '<button class="btn btn-outline-secondary btn-sm" onclick="editRule(\'' + rule.id + '\')" title="编辑"><i class="fas fa-pencil-alt"></i></button>';
+        html += '<button class="btn btn-outline-danger btn-sm" onclick="deleteRuleFromList(\'' + rule.id + '\')" title="删除"><i class="fas fa-trash"></i></button>';
+        html += '</div></div>';
+        html += '<p class="mb-1 small">' + Utils.escapeHtml(rule.content) + '</p>';
+        html += '<div class="d-flex gap-2 align-items-center">';
+        html += '<span class="rule-category">' + cat + '</span>';
+        html += '<span class="rule-priority ' + prio + '">' + (priorityLabels[prio] || prio) + '</span>';
+        html += '</div>';
+        if (rule.examples && rule.examples.length > 0) {
+            html += '<div class="mt-2 small text-muted">示例：' + Utils.escapeHtml(rule.examples.join(' | ')) + '</div>';
+        }
+        html += '</div>';
+    });
+    container.innerHTML = html;
+};
+
+// ── 规则对话（复用优化对话模式）──
+
+window.startRulesDialogue = function () {
+    var ds = window._rulesDialogue;
+    ds.messages = [];
+    ds.done = false;
+
+    var container = document.getElementById('rules-dialogue-container');
+    container.style.display = 'block';
+    var msgArea = document.getElementById('rules-dialogue-messages');
+    msgArea.innerHTML = '<div class="text-center py-3 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>正在连接 AI 教练...</div>';
+
+    var novelId = AppState.selectedNovelId;
+    if (!novelId) { Utils.showMessage('请先选择小说', 'warning'); return; }
+    var novelTitle = '';
+    if (AppState.continuationData && AppState.continuationData.novel_data) {
+        novelTitle = AppState.continuationData.novel_data.title || '';
+    }
+
+    Utils.apiRequest('/novels/' + novelId + '/rules').then(function (resp) {
+        var existingRules = (resp.success && resp.data && resp.data.rules) ? resp.data.rules : [];
+        return Utils.apiRequest('/novels/' + novelId + '/rules/dialogue', {
+            method: 'POST',
+            body: JSON.stringify({ messages: [], novel_title: novelTitle, existing_rules: existingRules })
+        });
+    }).then(function (resp) {
+        if (!resp.success) { Utils.showMessage(resp.error || '对话启动失败', 'danger'); msgArea.innerHTML = ''; return; }
+        var data = resp.data;
+        ds.messages.push({ role: 'user', content: '我想给这本小说建立一些写作规则' });
+        ds.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage, rule_update: data.rule_update });
+        renderRulesDialogue();
+    }).catch(function (e) {
+        Utils.showMessage('对话启动失败: ' + e.message, 'danger');
+        msgArea.innerHTML = '';
+    });
+};
+
+var renderRulesDialogue = function () {
+    var ds = window._rulesDialogue;
+    var container = document.getElementById('rules-dialogue-messages');
+    var html = '';
+
+    // 渲染所有消息
+    ds.messages.forEach(function (msg, idx) {
+        var isLastAssistant = (msg.role === 'assistant' && idx === ds.messages.length - 1);
+        html += '<div class="dialogue-message ' + msg.role + '">';
+        html += '<div>' + Utils.escapeHtml(msg.content || '').replace(/\n/g, '<br>') + '</div>';
+        // 只给最后一条 assistant 渲染可点击选项
+        if (isLastAssistant && msg.options && msg.options.length > 0 && !ds.done) {
+            html += '<div class="dialogue-options">';
+            msg.options.forEach(function (opt, i) {
+                var cls = (msg.stage === 'confirming' && i === 0) ? 'dialogue-option-btn confirm' : 'dialogue-option-btn';
+                html += '<span class="' + cls + '" onclick="selectRulesOption(\'' + opt.replace(/'/g, "\\'") + '\', ' + i + ')">' + Utils.escapeHtml(opt) + '</span>';
+            });
+            html += '</div>';
+        }
+        html += '</div>';
+    });
+
+    container.innerHTML = html;
+    container.scrollTop = container.scrollHeight;
+
+    // 对话完成 / 确认 → 保存规则
+    var lastMsg = ds.messages[ds.messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant' && !ds.done) {
+        // stage=confirming 时立刻保存 rule_update，不等 done
+        if (lastMsg.stage === 'confirming' && lastMsg.rule_update) {
+            saveRuleToServer(lastMsg.rule_update);
+            ds.done = true;
+            var inputArea = document.querySelector('.rules-dialogue-input');
+            if (inputArea) {
+                inputArea.innerHTML =
+                    '<button class="btn btn-outline-primary btn-sm me-2" onclick="startRulesDialogue()"><i class="fas fa-plus me-1"></i>继续添加规则</button>' +
+                    '<button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById(\'rules-dialogue-container\').style.display=\'none\';loadRulesList();"><i class="fas fa-check me-1"></i>完成</button>';
+            }
+        } else if (lastMsg.stage === 'done') {
+            ds.done = true;
+            if (lastMsg.rule_update) {
+                saveRuleToServer(lastMsg.rule_update);
+            }
+            var inputArea2 = document.querySelector('.rules-dialogue-input');
+            if (inputArea2) {
+                inputArea2.innerHTML =
+                    '<button class="btn btn-outline-primary btn-sm me-2" onclick="startRulesDialogue()"><i class="fas fa-plus me-1"></i>继续添加规则</button>' +
+                    '<button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById(\'rules-dialogue-container\').style.display=\'none\';loadRulesList();"><i class="fas fa-check me-1"></i>完成</button>';
+            }
+        }
+    }
+};
+
+window.selectRulesOption = function (option, idx) {
+    var ds = window._rulesDialogue;
+    var novelId = AppState.selectedNovelId;
+    ds.messages.push({ role: 'user', content: option });
+
+    // 点击"完成"类选项
+    if (option.indexOf('结束') >= 0 || option.indexOf('完成') >= 0 || option.indexOf('不再添加') >= 0) {
+        document.getElementById('rules-dialogue-container').style.display = 'none';
+        loadRulesList();
+        return;
+    }
+
+    var msgArea = document.getElementById('rules-dialogue-messages');
+    msgArea.innerHTML = '<div class="text-center py-2 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>思考中...</div>';
+
+    var novelTitle = '';
+    if (AppState.continuationData && AppState.continuationData.novel_data) {
+        novelTitle = AppState.continuationData.novel_data.title || '';
+    }
+
+    // 只传 role + content
+    var textMessages = ds.messages.map(function (m) { return { role: m.role, content: m.content }; });
+
+    fetch(API_BASE + '/novels/' + novelId + '/rules/dialogue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: textMessages, novel_title: novelTitle, existing_rules: [] })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (resp) {
+        if (!resp.success) { Utils.showMessage(resp.error || '对话失败', 'danger'); renderRulesDialogue(); return; }
+        var data = resp.data;
+        ds.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage, rule_update: data.rule_update });
+        renderRulesDialogue();
+    })
+    .catch(function (e) {
+        Utils.showMessage('对话失败: ' + e.message, 'danger');
+        renderRulesDialogue();
+    });
+};
+
+window.sendRulesMessage = function () {
+    var input = document.getElementById('rules-dialogue-input');
+    var text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    selectRulesOption(text);
+};
+
+// ── 规则 CRUD ──
+
+var saveRuleToServer = function (rule) {
+    var novelId = AppState.selectedNovelId;
+    if (!novelId) return;
+    fetch(API_BASE + '/novels/' + novelId + '/rules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rule: rule })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (resp) {
+        if (resp.success) {
+            Utils.showMessage('规则已保存', 'success');
+            loadRulesList();
+        } else {
+            Utils.showMessage('保存失败: ' + (resp.error || ''), 'danger');
+        }
+    })
+    .catch(function (e) { Utils.showMessage('保存失败: ' + e.message, 'danger'); });
+};
+
+window.editRule = function (ruleId) {
+    var novelId = AppState.selectedNovelId;
+    Utils.apiRequest('/novels/' + novelId + '/rules').then(function (resp) {
+        if (!resp.success) return;
+        var rules = resp.data.rules || [];
+        var rule = rules.find(function (r) { return r.id === ruleId; });
+        if (!rule) return;
+        var newTitle = prompt('编辑规则标题：', rule.title || '');
+        if (newTitle === null) return;
+        var newContent = prompt('编辑规则内容：', rule.content || '');
+        if (newContent === null) return;
+        var newPriority = prompt('优先级 (must/should/may)：', rule.priority || 'should');
+        fetch(API_BASE + '/novels/' + novelId + '/rules', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rule: { id: ruleId, title: newTitle, content: newContent, priority: newPriority || 'should', category: rule.category } })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+            if (resp.success) { Utils.showMessage('规则已更新', 'success'); loadRulesList(); }
+            else { Utils.showMessage('更新失败: ' + (resp.error || ''), 'danger'); }
+        })
+        .catch(function (e) { Utils.showMessage('更新失败: ' + e.message, 'danger'); });
+    });
+};
+
+window.deleteRuleFromList = function (ruleId) {
+    if (!confirm('确定删除这条规则？')) return;
+    var novelId = AppState.selectedNovelId;
+    fetch(API_BASE + '/novels/' + novelId + '/rules/' + ruleId, { method: 'DELETE' })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+            if (resp.success) { Utils.showMessage('规则已删除', 'success'); loadRulesList(); }
+            else { Utils.showMessage('删除失败: ' + (resp.error || ''), 'danger'); }
+        })
+        .catch(function (e) { Utils.showMessage('删除失败: ' + e.message, 'danger'); });
+};
+
+// ──────────────────────────────────────────────
+// Agent 记忆管理 (Agent Memory) — 2026-06-28
+// ──────────────────────────────────────────────
+
+window.saveAgentMemory = function () {
+    var novelId = AppState.selectedNovelId;
+    if (!novelId) { Utils.showMessage('请先选择小说', 'warning'); return; }
+
+    var modalHtml = '<div class="modal fade memory-modal" id="memorySaveModal" tabindex="-1">';
+    modalHtml += '<div class="modal-dialog"><div class="modal-content"><div class="modal-header bg-warning text-dark">';
+    modalHtml += '<h6 class="modal-title"><i class="fas fa-brain me-2"></i>保存经验到 Agent 记忆</h6>';
+    modalHtml += '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>';
+    modalHtml += '<div class="modal-body">';
+    modalHtml += '<div class="mb-3"><label class="form-label small fw-bold">选择 Agent</label>';
+    modalHtml += '<select class="form-select form-select-sm" id="mem-agent"><option value="chapter_writer">正文写手</option>';
+    modalHtml += '<option value="continuation_chapter_writer">续写写手</option>';
+    modalHtml += '<option value="quality_assessor">质量评估</option>';
+    modalHtml += '<option value="continuation_quality_assessor">续写质量评估</option>';
+    modalHtml += '<option value="chapter_improver">章节优化</option></select></div>';
+    modalHtml += '<div class="mb-3"><label class="form-label small fw-bold">分类</label>';
+    modalHtml += '<select class="form-select form-select-sm" id="mem-category"><option value="pacing">节奏</option>';
+    modalHtml += '<option value="character">人物</option><option value="dialogue">对话</option>';
+    modalHtml += '<option value="worldbuilding">世界观</option><option value="style">文笔</option>';
+    modalHtml += '<option value="other">其他</option></select></div>';
+    modalHtml += '<div class="mb-3"><label class="form-label small fw-bold">严重程度</label>';
+    modalHtml += '<select class="form-select form-select-sm" id="mem-severity"><option value="medium">中</option>';
+    modalHtml += '<option value="high">高</option><option value="low">低</option></select></div>';
+    modalHtml += '<div class="mb-3"><label class="form-label small fw-bold">经验内容</label>';
+    modalHtml += '<textarea class="form-control form-control-sm" id="mem-content" rows="3" placeholder="例如：前500字节奏偏慢，心理描写过多，建议用行动开篇"></textarea></div>';
+    modalHtml += '</div><div class="modal-footer">';
+    modalHtml += '<button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>';
+    modalHtml += '<button class="btn btn-warning btn-sm" onclick="confirmSaveMemory()"><i class="fas fa-save me-1"></i>保存</button>';
+    modalHtml += '</div></div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    var modal = new bootstrap.Modal(document.getElementById('memorySaveModal'));
+    modal.show();
+    document.getElementById('memorySaveModal').addEventListener('hidden.bs.modal', function () { this.remove(); });
+};
+
+window.confirmSaveMemory = function () {
+    var novelId = AppState.selectedNovelId;
+    var agentName = document.getElementById('mem-agent').value;
+    var insight = {
+        category: document.getElementById('mem-category').value,
+        severity: document.getElementById('mem-severity').value,
+        content: document.getElementById('mem-content').value.trim(),
+        source_agent: agentName
+    };
+    if (!insight.content) { Utils.showMessage('请输入经验内容', 'warning'); return; }
+
+    fetch(API_BASE + '/novels/' + novelId + '/memory/' + agentName, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ insight: insight })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (resp) {
+        if (resp.success) {
+            Utils.showMessage('经验已保存到「' + agentName + '」记忆', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('memorySaveModal')).hide();
+        } else {
+            Utils.showMessage('保存失败: ' + (resp.error || ''), 'danger');
+        }
+    })
+    .catch(function (e) { Utils.showMessage('保存失败: ' + e.message, 'danger'); });
+};
+
+window.showAgentMemory = function () {
+    var novelId = AppState.selectedNovelId;
+    if (!novelId) { Utils.showMessage('请先选择小说', 'warning'); return; }
+    Utils.apiRequest('/novels/' + novelId + '/memory/summary').then(function (resp) {
+        if (!resp.success) { Utils.showMessage('获取记忆失败', 'danger'); return; }
+        var agents = resp.data.agents || [];
+        if (agents.length === 0) { Utils.showMessage('暂无 Agent 记忆', 'info'); return; }
+        var html = '<div class="p-3">';
+        agents.forEach(function (a) {
+            html += '<h6 class="fw-bold mt-2"><i class="fas fa-robot me-2"></i>' + Utils.escapeHtml(a.agent_name) + ' (' + a.insight_count + ' 条)</h6>';
+            (a.recent || []).forEach(function (ins) {
+                var sevBadge = ins.severity === 'high' ? 'danger' : ins.severity === 'medium' ? 'warning' : 'info';
+                html += '<div class="novel-rules-card"><span class="badge bg-' + sevBadge + ' me-2">' + Utils.escapeHtml(ins.severity || '') + '</span>';
+                html += '<span class="rule-category me-2">' + Utils.escapeHtml(ins.category || '') + '</span>';
+                html += Utils.escapeHtml(ins.content || '') + '</div>';
+            });
+        });
+        html += '</div>';
+        var modalHtml = '<div class="modal fade" id="memoryViewModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">';
+        modalHtml += '<div class="modal-header bg-info text-white"><h6 class="modal-title"><i class="fas fa-brain me-2"></i>Agent 记忆</h6>';
+        modalHtml += '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>';
+        modalHtml += '<div class="modal-body">' + html + '</div></div></div></div>';
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        var modal = new bootstrap.Modal(document.getElementById('memoryViewModal'));
+        modal.show();
+        document.getElementById('memoryViewModal').addEventListener('hidden.bs.modal', function () { this.remove(); });
+    });
+};

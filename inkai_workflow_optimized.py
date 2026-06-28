@@ -301,9 +301,9 @@ class InkAIWorkflowOptimized:
             "overall_storyline": self.context.storyline,
             "improvement_suggestions": suggestions or quality_assessment.get("suggestions", []),
             "tags": self.context.tags,
-            "user_requirements": self.context.user_requirements
+            "user_requirements": self.context.get_user_requirements_with_rules()
         }
-        
+
         # 调用人物改进智能体
         result = self.character_improver.process(input_data)
         
@@ -424,9 +424,9 @@ class InkAIWorkflowOptimized:
             "characters": self.context.characters,
             "improvement_suggestions": suggestions or quality_assessment.get("suggestions", []),
             "tags": self.context.tags,
-            "user_requirements": self.context.user_requirements
+            "user_requirements": self.context.get_user_requirements_with_rules()
         }
-        
+
         # 调用故事线改进智能体
         result = self.storyline_improver.process(input_data)
         
@@ -720,13 +720,29 @@ class InkAIWorkflowOptimized:
             except Exception as e:
                 print(f"[Vector] 语义检索失败（不影响主线）: {e}")
 
-        # 注入动态知识
-        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id)
+        # 注入动态知识（用最近章节+情节线构建语义查询）
+        query_parts = []
+        last_ch = kb.get("last_chapter_summary", {})
+        if last_ch.get("summary"):
+            query_parts.append(last_ch["summary"][:200])
+        for rc in kb.get("recent_chapters_summaries", [])[-2:]:
+            if rc.get("summary"):
+                query_parts.append(rc["summary"][:200])
+        storyline_query = "；".join(query_parts) if query_parts else None
+        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id, storyline_query)
+
+        # 注入上一章的场景连续性状态（如果上一章场景未结束，则本章需要延续）
+        previous_scene = self._get_previous_chapter_scene_continuity(novel_id or self.context.novel_id)
+        if previous_scene:
+            kb["previous_scene_continuity"] = previous_scene
+            print(f"[SceneContinuity] 上一章场景状态: span={previous_scene.get('scene_span_chapters')}, "
+                  f"phase={previous_scene.get('scene_phase')}, "
+                  f"continues={previous_scene.get('continues_from_previous')}")
 
         # 调用续写故事线生成智能体
         result = self.continuation_storyline_generator.process({
             "knowledge_base": kb,
-            "user_requirements": self.context.user_requirements
+            "user_requirements": self.context.get_user_requirements_with_rules()
         })
         
         if "error" in result:
@@ -819,15 +835,15 @@ class InkAIWorkflowOptimized:
             "characters": knowledge_base.get("character_profiles", {}),
             "improvement_suggestions": suggestions,
             "tags": knowledge_base.get("tags", {}),
-            "user_requirements": self.context.user_requirements
+            "user_requirements": self.context.get_user_requirements_with_rules()
         }
-        
+
         print(f"改进输入数据检查:")
         print(f"  - current_storyline: {bool(current_storyline)}")
         print(f"  - improvement_suggestions: {len(suggestions)} 条")
         print(f"  - knowledge_base: {bool(knowledge_base)}")
-        print(f"  - user_requirements: {bool(self.context.user_requirements)}")
-        
+        print(f"  - user_requirements: {bool(self.context.get_user_requirements_with_rules())}")
+
         # 调用续写故事线改进智能体
         result = self.continuation_storyline_improver.process(input_data)
         
@@ -846,10 +862,19 @@ class InkAIWorkflowOptimized:
         
         # 保存到数据管理器（持久化存储）
         self.data_manager.save_novel_data(self.context.novel_id, "next_chapter_storyline", improved_storyline)
-        
+
+        # 重新进行质量评估
+        quality_input = self.context.get_agent_input_data("quality_assessor", {
+            "content": improved_storyline.get("overall_storyline", improved_storyline),
+            "content_type": "storyline"
+        })
+        new_quality_result = self.quality_assessor.process(quality_input)
+        self.context.cache_quality_assessment("continuation_storyline", new_quality_result)
+        self.data_manager.save_novel_data(self.context.novel_id, "continuation_storyline_quality_assessment", new_quality_result)
+
         # 保存上下文
         self.save_context()
-        
+
         print("续写故事线改进完成")
         
         return {
@@ -896,10 +921,10 @@ class InkAIWorkflowOptimized:
                     "continuation_storyline": self.context.get_cached_result("next_chapter_storyline"),
                     "tags": knowledge_base.get("tags", {})
                 },
-                "user_requirements": self.context.user_requirements,
+                "user_requirements": self.context.get_user_requirements_with_rules(),
                 "suggestions": suggestions or []
             }
-            
+
             # 调用续写章节改进智能体
             improved_result = self.continuation_chapter_improver.process(improvement_input)
             
@@ -1057,16 +1082,22 @@ class InkAIWorkflowOptimized:
             except Exception as e:
                 print(f"[Vector] 评估器检索失败（不影响主线）: {e}")
 
-        # 注入动态知识
-        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id)
+        # 注入动态知识（用待评估内容构建语义查询）
+        assessor_query = None
+        if content_type == "story" and content:
+            assessor_query = content.get("content", "")[:500]
+        elif content_type == "storyline" and content:
+            plot_pts = content.get("plot_points", [])
+            assessor_query = "；".join(str(p)[:200] for p in plot_pts[:5]) if plot_pts else None
+        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id, assessor_query)
 
         quality_input = {
             "continuation_content": content,
             "original_knowledge_base": kb,
             "content_type": content_type,
-            "user_requirements": self.context.user_requirements
+            "user_requirements": self.context.get_user_requirements_with_rules()
         }
-        
+
         result = self.continuation_quality_assessor.process(quality_input)
         
         if "error" in result:
@@ -1160,14 +1191,26 @@ class InkAIWorkflowOptimized:
             except Exception as e:
                 print(f"[Vector] 章节写手检索失败（不影响主线）: {e}")
 
-        # 注入动态知识
-        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id)
+        # 注入动态知识（用本章故事线+上一章摘要构建语义查询）
+        writer_query_parts = []
+        if storyline:
+            scene = storyline.get("scene_setting", {})
+            if isinstance(scene, dict):
+                writer_query_parts.append(scene.get("atmosphere", ""))
+            plot_pts = storyline.get("plot_points", [])
+            if plot_pts:
+                writer_query_parts.append("；".join(str(p)[:200] for p in plot_pts[:3]))
+        last_ch = kb.get("last_chapter_summary", {})
+        if last_ch.get("summary"):
+            writer_query_parts.append(last_ch["summary"][:200])
+        writer_query = "；".join(writer_query_parts) if writer_query_parts else None
+        kb = self._inject_dynamic_knowledge(kb, self.context.novel_id, writer_query)
 
         # 调用续写章节写作智能体
         result = self.continuation_chapter_writer.process({
             "storyline": storyline,
             "knowledge_base": kb,
-            "user_requirements": self.context.user_requirements
+            "user_requirements": self.context.get_user_requirements_with_rules()
         })
         
         if "error" in result:
@@ -1241,6 +1284,8 @@ class InkAIWorkflowOptimized:
         clean_content = self._extract_clean_content(raw_content)
         
         # 保存章节（包含所有字段）
+        # 从故事线中提取 scene_continuity，用于跨章场景追踪
+        storyline = self.context.get_cached_result("next_chapter_storyline") or {}
         chapter_data = {
             "chapter_number": current_chapter_number,
             "title": chapter_content.get("title", f"第{current_chapter_number}章"),
@@ -1251,6 +1296,8 @@ class InkAIWorkflowOptimized:
             "foreshadowing": chapter_content.get("foreshadowing", []),
             "next_chapter_hint": chapter_content.get("next_chapter_hint", ""),
             "consistency_notes": chapter_content.get("consistency_notes", ""),
+            "scene_setting": storyline.get("scene_setting", {}),
+            "scene_continuity": storyline.get("scene_continuity", {}),
             "created_at": datetime.now().isoformat(),
             "word_count": len(clean_content)
         }
@@ -1432,15 +1479,86 @@ class InkAIWorkflowOptimized:
         except Exception as e:
             print(f"[KnowledgeGraph] 合并动态知识到图谱失败: {e}")
 
-    def _inject_dynamic_knowledge(self, kb: Dict[str, Any], novel_id: str) -> Dict[str, Any]:
-        """将动态知识注入 knowledge_base，供所有 agent 读取"""
+        # 7. 为动态知识构建向量（语义检索用）
+        if self.embedding_service.is_available:
+            try:
+                dk = self.dynamic_knowledge_manager.get_dynamic_knowledge(novel_id)
+                if dk:
+                    from core.embedding_service import DynamicKnowledgeEmbeddingStore
+                    novel_dir = os.path.join(self.data_manager.novels_dir, novel_id)
+                    dk_store = DynamicKnowledgeEmbeddingStore(novel_dir, self.embedding_service)
+                    dk_store.build_for_chapter(chapter_number, dk)
+            except Exception as e:
+                print(f"[DynEmbedStore] 构建失败（不影响主线）: {e}")
+
+    def _inject_dynamic_knowledge(self, kb: Dict[str, Any], novel_id: str,
+                                   query_text: str = None) -> Dict[str, Any]:
+        """将动态知识注入 knowledge_base，优先使用语义检索
+
+        Args:
+            kb: 当前的 knowledge_base
+            novel_id: 小说 ID
+            query_text: 语义检索查询文本（None 则回退到全量截断模式）
+        """
         try:
             dk = self.dynamic_knowledge_manager.get_dynamic_knowledge(novel_id)
-            if dk:
-                kb["dynamic_knowledge"] = dk
+            if not dk:
+                return kb
+
+            # 始终保留全量动态知识作为兜底
+            kb["dynamic_knowledge"] = dk
+
+            # 尝试语义检索
+            if self.embedding_service.is_available and query_text:
+                try:
+                    from core.embedding_service import DynamicKnowledgeEmbeddingStore
+                    novel_dir = os.path.join(self.data_manager.novels_dir, novel_id)
+                    dk_store = DynamicKnowledgeEmbeddingStore(novel_dir, self.embedding_service)
+                    semantic = dk_store.search(query_text, top_k=15)
+                    if semantic:
+                        kb["dynamic_knowledge_semantic"] = semantic
+                        print(f"[DynamicKB] 语义检索命中 {sum(len(v) for v in semantic.values())} 条动态知识")
+                except Exception as e:
+                    print(f"[DynamicKB] 语义检索失败，回退全量模式: {e}")
         except Exception as e:
             print(f"[DynamicKB] 注入动态知识失败: {e}")
         return kb
+
+    def _get_previous_chapter_scene_continuity(self, novel_id: str) -> Optional[Dict[str, Any]]:
+        """获取上一章的场景连续性状态，用于跨章场景追踪
+
+        如果上一章的场景尚未结束（scene_span_chapters > 1 且 scene_phase != "收尾"），
+        返回上一章的 scene_continuity 信息，供剧情生成器作为约束。
+        """
+        try:
+            chapters = self.data_manager.get_novel_chapters(novel_id)
+            if not chapters or len(chapters) == 0:
+                return None
+
+            last_chapter = chapters[-1]
+            scene_continuity = last_chapter.get("scene_continuity")
+            if not scene_continuity or not isinstance(scene_continuity, dict):
+                return None
+
+            span = scene_continuity.get("scene_span_chapters", 1)
+            phase = scene_continuity.get("scene_phase", "开始")
+
+            # 如果跨章场景未结束，返回当前状态
+            if span > 1 and phase not in ("收尾", "高潮"):
+                return {
+                    "continues_from_previous": True,
+                    "scene_span_chapters": span,
+                    "current_phase": phase,
+                    "chapters_remaining": span - 1,  # 粗略估计
+                    "time": last_chapter.get("scene_setting", {}).get("time", ""),
+                    "location": last_chapter.get("scene_setting", {}).get("location", ""),
+                    "atmosphere": last_chapter.get("scene_setting", {}).get("atmosphere", ""),
+                }
+
+            return None
+        except Exception as e:
+            print(f"[SceneContinuity] 获取上一章场景状态失败: {e}")
+            return None
 
     def _extract_clean_content(self, raw_content: str) -> str:
         """从可能包含markdown格式的内容中提取纯文本"""

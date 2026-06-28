@@ -492,57 +492,105 @@ class ContinuationChapterImprover(BaseAgent):
         return "\n".join(parts) if parts else "知识图谱内容待解析"
     
     def _format_dynamic_knowledge(self, knowledge_base: Dict[str, Any]) -> str:
-        """格式化动态知识（角色发展轨迹/情节时间线/伏笔/世界观变动）"""
-        dk = knowledge_base.get("dynamic_knowledge", {})
+        """格式化动态知识——优先使用语义检索结果，回退全量截断模式"""
+        semantic = knowledge_base.get("dynamic_knowledge_semantic")
+        if semantic:
+            return self._format_semantic_dynamic_knowledge(semantic)
+        return self._format_full_dynamic_knowledge(knowledge_base.get("dynamic_knowledge", {}))
+
+    def _format_semantic_dynamic_knowledge(self, semantic: Dict[str, Any]) -> str:
+        """格式化语义检索返回的动态知识"""
+        parts = []
+        type_labels = {
+            "character_evolution": "【相关角色发展】",
+            "plot_events": "【相关情节事件】",
+            "foreshadowing": "【相关伏笔】",
+            "world_changes": "【相关世界观揭示】",
+            "chapter_summaries": "【相关章节摘要】"
+        }
+        for dtype, label in type_labels.items():
+            items = semantic.get(dtype, [])
+            if items:
+                lines = [f"  [{item.get('chapter', '?')}章 | 相关度:{item.get('score', 0):.2f}] {item.get('text', '')[:200]}" for item in items]
+                parts.append(f"{label}\n" + "\n".join(lines))
+        return "\n\n".join(parts) if parts else "（无相关动态知识）"
+
+    def _format_full_dynamic_knowledge(self, dk: Dict[str, Any]) -> str:
+        """格式化全量动态知识（兜底——全书分层抽样，不只看最近N条）"""
         if not dk:
             return "暂无动态知识数据"
 
         parts = []
 
-        # 角色发展轨迹
+        # 角色发展：每人每5章取1条里程碑，最多每人5条
         char_evo = dk.get("character_evolution", {})
         if char_evo:
             lines = []
             for name, records in char_evo.items():
                 if isinstance(records, list) and records:
-                    recent = records[-3:]  # 最近3条
-                    events = [f"  第{r.get('chapter_number', '?')}章: {r.get('description', '')[:80]}" for r in recent]
+                    # 按章节排序后每5章抽1条
+                    sorted_recs = sorted(records, key=lambda r: r.get("chapter_number", 0))
+                    milestones = [r for i, r in enumerate(sorted_recs) if i % 5 == 0 or i == len(sorted_recs) - 1][-5:]
+                    events = [f"  第{r.get('chapter_number', '?')}章: {r.get('description', '')[:80]}" for r in milestones]
                     lines.append(f"  {name}:\n" + "\n".join(events))
             if lines:
-                parts.append("【角色发展轨迹】\n" + "\n".join(lines))
+                parts.append("【角色发展轨迹（全书里程碑）】\n" + "\n".join(lines))
 
-        # 情节时间线
+        # 情节时间线：每5章取1-2个高重要性事件，最多20条
         plot_timeline = dk.get("plot_timeline", [])
         if plot_timeline:
-            recent = plot_timeline[-8:]  # 最近8个事件
-            events = [f"  第{e.get('chapter_number', '?')}章 [{e.get('event_type', 'plot')}] {e.get('description', '')[:100]}" for e in recent]
-            parts.append("【情节时间线】\n" + "\n".join(events))
+            # 按章节分组，每章取 importance=high 的优先
+            by_ch = {}
+            for e in plot_timeline:
+                ch = e.get("chapter_number", 0)
+                by_ch.setdefault(ch, []).append(e)
+            sampled = []
+            for ch in sorted(by_ch.keys()):
+                ch_events = sorted(by_ch[ch], key=lambda e: 0 if e.get("importance") == "high" else 1)
+                sampled.extend(ch_events[:2])
+                if len(sampled) >= 20:
+                    break
+            events = [f"  第{e.get('chapter_number', '?')}章 [{e.get('event_type', 'plot')}] {e.get('description', '')[:100]}" for e in sampled[:20]]
+            parts.append("【情节时间线（全书分层抽样）】\n" + "\n".join(events))
 
-        # 活跃伏笔
+        # 伏笔：活跃的全部展示（按重要性排序，high优先，最多15条）
         foreshadowing = dk.get("foreshadowing_tracking", {})
         if foreshadowing:
-            active = []
+            all_active = []
             for ftype, flist in foreshadowing.items():
                 if isinstance(flist, list):
                     for f in flist:
                         if f.get("status") == "active":
-                            active.append(f"  [{ftype}] 第{f.get('chapter_number', '?')}章: {f.get('content', '')[:100]}")
+                            all_active.append((f.get("importance", "medium") != "high", f))
+            # high优先
+            all_active.sort(key=lambda x: x[0])
+            active = [f"  [{ftype}] 第{f.get('chapter_number', '?')}章: {f.get('content', '')[:100]}"
+                      for _, f in all_active[:15]]
             if active:
-                parts.append("【活跃伏笔（需回收）】\n" + "\n".join(active[:8]))
+                parts.append(f"【活跃伏笔（全部{len(all_active)}条，展示前{len(active)}条）】\n" + "\n".join(active))
 
-        # 世界观变化
+        # 世界观变化：每3章取1条，最多8条
         world_changes = dk.get("world_changes", [])
         if world_changes:
-            recent = world_changes[-5:]
-            changes = [f"  第{c.get('chapter_number', '?')}章 [{c.get('change_type', 'world')}] {c.get('description', '')[:120]}" for c in recent]
-            parts.append("【世界观变化】\n" + "\n".join(changes))
+            sorted_wc = sorted(world_changes, key=lambda c: c.get("chapter_number", 0))
+            milestones = [sorted_wc[i] for i in range(0, len(sorted_wc), max(1, len(sorted_wc) // 8))][:8]
+            changes = [f"  第{c.get('chapter_number', '?')}章 [{c.get('change_type', 'world')}] {c.get('description', '')[:120]}" for c in milestones]
+            parts.append("【世界观变化（全书里程碑）】\n" + "\n".join(changes))
 
-        # 章节摘要
+        # 章节摘要：每5章取1条里程碑
         ch_summaries = dk.get("chapter_summaries", {})
         if ch_summaries:
-            recent = list(ch_summaries.items())[-5:]
-            summaries = [f"  第{num}章: {s.get('summary', s.get('title', ''))[:100]}" for num, s in recent]
-            parts.append("【最近章节摘要】\n" + "\n".join(summaries))
+            sorted_ch = sorted(ch_summaries.items(), key=lambda x: int(x[0]))
+            milestones = [sorted_ch[i] for i in range(0, len(sorted_ch), 5)] + [sorted_ch[-1]]
+            # 去重
+            seen = set()
+            unique_milestones = []
+            for num, s in milestones:
+                if num not in seen:
+                    seen.add(num)
+                    unique_milestones.append((num, s))
+            summaries = [f"  第{num}章: {s.get('summary', s.get('title', ''))[:100]}" for num, s in unique_milestones[-8:]]
+            parts.append("【章节摘要（全书里程碑）】\n" + "\n".join(summaries))
 
         return "\n\n".join(parts) if parts else "动态知识数据为空"
 

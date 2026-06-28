@@ -249,6 +249,54 @@
                 </div>
             </div>
 
+            <!-- 小说规则管理页面 -->
+            <div id="rules-management-page" class="page" style="display: none;">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm">
+                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="fas fa-book me-2"></i>小说规则管理</h5>
+                                <div>
+                                    <button class="btn btn-light btn-sm me-2" onclick="startRulesDialogue()">
+                                        <i class="fas fa-comments me-1"></i>AI 对话建立规则
+                                    </button>
+                                    <button class="btn btn-outline-light btn-sm" onclick="goBackToContinuation()">
+                                        <i class="fas fa-arrow-left me-1"></i>返回续写
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body p-4">
+                                <!-- AI 对话区域 -->
+                                <div id="rules-dialogue-container" class="rules-dialogue-container mb-4" style="display:none;">
+                                    <div id="rules-dialogue-messages">
+                                        <!-- 对话消息动态插入 -->
+                                    </div>
+                                    <div class="rules-dialogue-input mt-3">
+                                        <textarea class="form-control" id="rules-dialogue-input" rows="2" placeholder="描述你想要的规则..."></textarea>
+                                        <button class="btn btn-primary mt-2" onclick="sendRulesMessage()">
+                                            <i class="fas fa-paper-plane me-1"></i>发送
+                                        </button>
+                                    </div>
+                                </div>
+                                <!-- 规则列表区域 -->
+                                <div id="rules-list-container">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h6 class="fw-bold mb-0"><i class="fas fa-list-check me-2"></i>已有规则</h6>
+                                        <span class="badge bg-primary" id="rules-count">0 条</span>
+                                    </div>
+                                    <div id="rules-list">
+                                        <div class="text-center py-5 text-muted">
+                                            <i class="fas fa-inbox fa-3x mb-3"></i>
+                                            <p>暂无规则，点击「AI 对话建立规则」开始</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 快速续写进度页面 -->
             <div id="quick-continuation-progress-page" class="page" style="display: none;">
                 <div class="row">
@@ -278,6 +326,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="app.js?v=20260628f"></script>
+    <script src="app.js?v=20260628k"></script>
 </body>
 </html>

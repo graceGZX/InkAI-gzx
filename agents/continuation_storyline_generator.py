@@ -78,7 +78,10 @@ class ContinuationStorylineGenerator(BaseAgent):
             9. 上一章结尾：
             {self._format_last_chapter(last_chapter)}
 
-            10. 上一章结尾原文（本章开篇场景/时间必须与此衔接）：
+            9.5. 上一章场景连续性状态（跨章场景追踪）：
+            {self._format_previous_scene_continuity(knowledge_base)}
+
+            10. 上一章结尾原文（仅供了解剧情衔接点，禁止作为本章开头逐字复制）：
             {self._format_ending_text(last_chapter)}
 
             11. 用户续写需求：{user_requirements if user_requirements else "无特殊要求"}
@@ -91,7 +94,29 @@ class ContinuationStorylineGenerator(BaseAgent):
             5. 设置适当的伏笔和悬念
             6. 保持故事节奏和基调
             7. 为后续章节发展留下空间
-            
+
+            ## 场景连续性规则（重要）
+
+            你不是必须每章都换场景。一个场景可以跨越 2-3 章：
+
+            - **跨章场景**（scene_span_chapters = 2 或 3）：当剧情需要详细展开一个事件（如一场大战、一次探索、一段关键对话），让同一场景跨越多个章节。
+              - 第 1 章：scene_phase = "开始"，建立场景、引入冲突
+              - 第 2 章：scene_phase = "延续"，发展冲突、加深矛盾
+              - 第 3 章（如有）：scene_phase = "高潮"或"收尾"，解决或转折
+
+            - **单章场景**（scene_span_chapters = 1）：当剧情节点自然结束时，本章自成一个完整弧线
+
+            - **何时用跨章场景**（至少满足 2 项）：
+              1. 战斗/冲突需要多个阶段展开
+              2. 需要深入展示人物在压力下的变化
+              3. 世界观揭露需要层层递进
+              4. 多条线索在同一地点交汇
+              5. 情绪积累需要足够篇幅
+
+            - **比例建议**：每 3-5 章中应有 1-2 次跨章场景，避免每章都换场景
+
+            - **跨章场景时**：scene_setting 的 time/location 保持与上一章一致或延续，chapter_ending 应停在关键时刻（悬念/未完成），而非强行收尾
+
             请返回JSON格式：
             {{
                 "chapter_number": {next_chapter_number},
@@ -101,6 +126,13 @@ class ContinuationStorylineGenerator(BaseAgent):
                     "location": "地点设定",
                     "atmosphere": "氛围描述",
                     "weather": "天气状况"
+                }},
+                "scene_continuity": {{
+                    "continues_from_previous": true,
+                    "scene_span_chapters": 1,
+                    "scene_phase": "开始",
+                    "time_shift": "紧接上章/数分钟后/次日清晨/...",
+                    "location_change": "同一地点/相邻区域/..."
                 }},
                 "plot_points": [
                     "情节要点1",
@@ -177,6 +209,13 @@ class ContinuationStorylineGenerator(BaseAgent):
                     "atmosphere": "待设定",
                     "weather": "待设定"
                 },
+                "scene_continuity": {
+                    "continues_from_previous": False,
+                    "scene_span_chapters": 1,
+                    "scene_phase": "开始",
+                    "time_shift": "待设定",
+                    "location_change": "待设定"
+                },
                 "plot_points": [],
                 "character_interactions": [],
                 "key_events": [],
@@ -212,6 +251,13 @@ class ContinuationStorylineGenerator(BaseAgent):
                 "location": "待设定",
                 "atmosphere": "待设定",
                 "weather": "待设定"
+            },
+            "scene_continuity": {
+                "continues_from_previous": False,
+                "scene_span_chapters": 1,
+                "scene_phase": "开始",
+                "time_shift": "待设定",
+                "location_change": "待设定"
             },
             "plot_points": ["情节发展待补充"],
             "character_interactions": [],
@@ -315,9 +361,41 @@ class ContinuationStorylineGenerator(BaseAgent):
         return formatted
 
     def _format_ending_text(self, last_chapter: Dict[str, Any]) -> str:
-        """格式化上一章结尾原文"""
+        """格式化上一章结尾原文（仅供衔接参考，禁止逐字复制）"""
         ending = last_chapter.get("ending_text", "")
-        return f"「{ending}」" if ending else "无上一章结尾文本"
+        if not ending:
+            return "无上一章结尾文本"
+        return (
+            f"上一章结尾（仅供了解剧情衔接点，禁止在章开头逐字复制此文本）：\n"
+            f"「{ending}」"
+        )
+
+    def _format_previous_scene_continuity(self, knowledge_base: Dict[str, Any]) -> str:
+        """格式化上一章的场景连续性状态"""
+        prev = knowledge_base.get("previous_scene_continuity")
+        if not prev:
+            return "上一章无跨章场景状态（或场景已结束）"
+
+        continues = prev.get("continues_from_previous", False)
+        span = prev.get("scene_span_chapters", 1)
+        phase = prev.get("current_phase", "开始")
+        remaining = prev.get("chapters_remaining", 0)
+        time = prev.get("time", "未知")
+        location = prev.get("location", "未知")
+        atmosphere = prev.get("atmosphere", "未知")
+
+        if not continues:
+            return "上一章场景已结束，本章应开始新场景"
+
+        return (
+            f"⚠️ 上一章场景尚未结束！\n"
+            f"  - 此场景计划横跨 {span} 章，当前处于「{phase}」阶段\n"
+            f"  - 预计还需 {remaining} 章完成此场景\n"
+            f"  - 上一章场景：时间={time}，地点={location}，氛围={atmosphere}\n"
+            f"  - 本章应：延续同一场景，scene_continuity.continues_from_previous 设为 true，\n"
+            f"    scene_phase 设为 \"延续\"（或 \"高潮\"/\"收尾\"如果是最后一章），\n"
+            f"    time/location 保持与上一章一致或自然延续"
+        )
 
     def _format_last_chapter(self, last_chapter: Dict[str, Any]) -> str:
         """格式化上一章信息"""
@@ -356,44 +434,95 @@ class ContinuationStorylineGenerator(BaseAgent):
         return formatted
 
     def _format_dynamic_knowledge(self, knowledge_base: Dict[str, Any]) -> str:
-        """格式化动态知识"""
-        dk = knowledge_base.get("dynamic_knowledge", {})
+        """格式化动态知识——优先使用语义检索结果，回退全量截断模式"""
+        semantic = knowledge_base.get("dynamic_knowledge_semantic")
+        if semantic:
+            return self._format_semantic_dk(semantic)
+        return self._format_full_dk(knowledge_base.get("dynamic_knowledge", {}))
+
+    def _format_semantic_dk(self, semantic: Dict[str, Any]) -> str:
+        parts = []
+        labels = {"character_evolution": "【相关角色发展】", "plot_events": "【相关情节事件】",
+                  "foreshadowing": "【相关伏笔】", "world_changes": "【相关世界观揭示】",
+                  "chapter_summaries": "【相关章节摘要】"}
+        for dtype, label in labels.items():
+            items = semantic.get(dtype, [])
+            if items:
+                lines = [f"  [{item.get('chapter', '?')}章 | 相关度:{item.get('score', 0):.2f}] {item.get('text', '')[:200]}" for item in items]
+                parts.append(f"{label}\n" + "\n".join(lines))
+        return "\n\n".join(parts) if parts else "（无相关动态知识）"
+
+    def _format_full_dk(self, dk: Dict[str, Any]) -> str:
+        """格式化全量动态知识（兜底——全书分层抽样，不只看最近N条）"""
         if not dk:
             return "暂无动态知识数据"
 
         parts = []
+
+        # 角色发展：每人每5章取1条里程碑，最多每人5条
         char_evo = dk.get("character_evolution", {})
         if char_evo:
             lines = []
             for name, records in char_evo.items():
                 if isinstance(records, list) and records:
-                    recent = records[-3:]
-                    events = [f"  第{r.get('chapter_number', '?')}章: {r.get('description', '')[:80]}" for r in recent]
+                    sorted_recs = sorted(records, key=lambda r: r.get("chapter_number", 0))
+                    milestones = [r for i, r in enumerate(sorted_recs) if i % 5 == 0 or i == len(sorted_recs) - 1][-5:]
+                    events = [f"  第{r.get('chapter_number', '?')}章: {r.get('description', '')[:80]}" for r in milestones]
                     lines.append(f"  {name}:\n" + "\n".join(events))
             if lines:
-                parts.append("【角色发展轨迹】\n" + "\n".join(lines))
+                parts.append("【角色发展轨迹（全书里程碑）】\n" + "\n".join(lines))
 
+        # 情节时间线：每章取1-2个高重要性事件，最多20条
         plot_timeline = dk.get("plot_timeline", [])
         if plot_timeline:
-            recent = plot_timeline[-8:]
-            events = [f"  第{e.get('chapter_number', '?')}章 [{e.get('event_type', 'plot')}] {e.get('description', '')[:100]}" for e in recent]
-            parts.append("【情节时间线】\n" + "\n".join(events))
+            by_ch = {}
+            for e in plot_timeline:
+                ch = e.get("chapter_number", 0)
+                by_ch.setdefault(ch, []).append(e)
+            sampled = []
+            for ch in sorted(by_ch.keys()):
+                ch_events = sorted(by_ch[ch], key=lambda e: 0 if e.get("importance") == "high" else 1)
+                sampled.extend(ch_events[:2])
+                if len(sampled) >= 20:
+                    break
+            events = [f"  第{e.get('chapter_number', '?')}章 [{e.get('event_type', 'plot')}] {e.get('description', '')[:100]}" for e in sampled[:20]]
+            parts.append("【情节时间线（全书分层抽样）】\n" + "\n".join(events))
 
+        # 伏笔：活跃的全部展示（按重要性排序，high优先，最多15条）
         foreshadowing = dk.get("foreshadowing_tracking", {})
         if foreshadowing:
-            active = []
+            all_active = []
             for ftype, flist in foreshadowing.items():
                 if isinstance(flist, list):
                     for f in flist:
                         if f.get("status") == "active":
-                            active.append(f"  [{ftype}] 第{f.get('chapter_number', '?')}章: {f.get('content', '')[:100]}")
+                            all_active.append((f.get("importance", "medium") != "high", f))
+            all_active.sort(key=lambda x: x[0])
+            active = [f"  [{ftype}] 第{f.get('chapter_number', '?')}章: {f.get('content', '')[:100]}"
+                      for _, f in all_active[:15]]
             if active:
-                parts.append("【活跃伏笔（需回收/延续）】\n" + "\n".join(active[:8]))
+                parts.append(f"【活跃伏笔（全部{len(all_active)}条，展示前{len(active)}条）】\n" + "\n".join(active))
 
+        # 世界观变化：每3章取1条，最多8条
         world_changes = dk.get("world_changes", [])
         if world_changes:
-            recent = world_changes[-5:]
-            changes = [f"  第{c.get('chapter_number', '?')}章 [{c.get('change_type', 'world')}] {c.get('description', '')[:120]}" for c in recent]
-            parts.append("【世界观变化】\n" + "\n".join(changes))
+            sorted_wc = sorted(world_changes, key=lambda c: c.get("chapter_number", 0))
+            milestones = [sorted_wc[i] for i in range(0, len(sorted_wc), max(1, len(sorted_wc) // 8))][:8]
+            changes = [f"  第{c.get('chapter_number', '?')}章 [{c.get('change_type', 'world')}] {c.get('description', '')[:120]}" for c in milestones]
+            parts.append("【世界观变化（全书里程碑）】\n" + "\n".join(changes))
+
+        # 章节摘要：每5章取1条里程碑
+        ch_summaries = dk.get("chapter_summaries", {})
+        if ch_summaries:
+            sorted_ch = sorted(ch_summaries.items(), key=lambda x: int(x[0]))
+            milestones = [sorted_ch[i] for i in range(0, len(sorted_ch), 5)] + [sorted_ch[-1]]
+            seen = set()
+            unique_milestones = []
+            for num, s in milestones:
+                if num not in seen:
+                    seen.add(num)
+                    unique_milestones.append((num, s))
+            summaries = [f"  第{num}章: {s.get('summary', s.get('title', ''))[:100]}" for num, s in unique_milestones[-8:]]
+            parts.append("【章节摘要（全书里程碑）】\n" + "\n".join(summaries))
 
         return "\n\n".join(parts) if parts else "动态知识数据为空"

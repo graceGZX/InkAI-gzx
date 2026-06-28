@@ -1570,19 +1570,38 @@ def improve_dialogue(novel_id, chapter_number):
         agent.model = "deepseek-v4-pro"
         response = agent.call_llm(llm_messages, temperature=0.7, max_tokens=600)
 
-        # 解析 JSON
-        json_match = re.search(r'\{[\s\S]*\}', response)
-        if json_match:
-            result = json.loads(json_match.group())
-        else:
-            # Fallback: 返回一个简单的开场问题
-            result = {
-                "question": f"您想优化第{chapter_number}章《{chapter_title}》的哪个方面？",
-                "options": ["情节节奏", "人物对话与心理描写", "环境与氛围描写", "世界观设定说明", "其他（请描述）"],
-                "stage": "opening",
-                "confirmed_requirements": None,
-                "suggested_scope": None
-            }
+        # 使用 BaseAgent 的成熟 JSON 解析（修复中文引号/尾部逗号/markdown代码块等）
+        result = agent.parse_json_response(response)
+        if not result or not isinstance(result, dict) or "question" not in result:
+            print(f"[dialogue] JSON 解析失败或缺少 question 字段，原始响应: {response[:300]}")
+            # 上下文感知的 fallback：根据已进行的轮次给出合理回复
+            user_msgs = [m.get("content", "") for m in messages if m.get("role") == "user"]
+            if user_turns == 0:
+                result = {
+                    "question": f"您想优化第{chapter_number}章《{chapter_title}》的哪个方面？",
+                    "options": ["情节节奏", "人物对话与心理描写", "环境与氛围描写", "世界观设定说明", "其他（请描述）"],
+                    "stage": "opening",
+                    "confirmed_requirements": None,
+                    "suggested_scope": None
+                }
+            elif user_turns <= 2:
+                last_user_msg = user_msgs[-1] if user_msgs else ""
+                result = {
+                    "question": f"了解。关于「{last_user_msg[:50]}」，您希望怎么修改？比如重点调整哪些段落或角色？",
+                    "options": ["重点修改相关段落", "全文统一调整", "只补充说明即可", "其他（请描述）"],
+                    "stage": "clarifying",
+                    "confirmed_requirements": None,
+                    "suggested_scope": None
+                }
+            else:
+                all_requirements = "；".join(user_msgs)
+                result = {
+                    "question": f"总结您的需求：{all_requirements[:200]}。确认开始优化吗？",
+                    "options": ["✅ 确认开始优化", "🔄 重新描述需求"],
+                    "stage": "confirming",
+                    "confirmed_requirements": all_requirements[:300],
+                    "suggested_scope": "medium"
+                }
 
         return jsonify({"success": True, "data": result})
 
@@ -1659,45 +1678,33 @@ def improve_proposals(novel_id, chapter_number):
         agent = _LLMAgent("优化提案")
         response = agent.call_llm([{"role": "system", "content": system_prompt}], temperature=0.7, max_tokens=1200)
 
-        # 解析 JSON（容错处理）
-        result = None
-        json_match = re.search(r'\{[\s\S]*\}', response)
-        if json_match:
-            raw_json = json_match.group()
-            try:
-                result = json.loads(raw_json)
-            except json.JSONDecodeError:
-                # 尝试修复常见 JSON 问题
-                try:
-                    # 去掉尾部逗号
-                    fixed = re.sub(r',\s*}', '}', raw_json)
-                    fixed = re.sub(r',\s*]', ']', fixed)
-                    # 修复未转义的换行
-                    result = json.loads(fixed)
-                except json.JSONDecodeError:
-                    print(f"[Proposals] JSON 解析失败，原始响应: {response[:500]}")
+        # 使用 BaseAgent 的成熟 JSON 解析
+        result = agent.parse_json_response(response)
+        if not result or not result.get("plans"):
+            print(f"[Proposals] JSON 解析失败或缺少 plans，原始响应: {response[:500]}")
 
         if not result or not result.get("plans"):
-            # Fallback: 如果完全没解析出来
+            # Fallback: 基于需求关键词生成有意义的方案摘要
+            req_brief = requirements[:80]
             result = {"plans": [{
                 "index": 0,
-                "title": "按需求优化",
-                "description": f"根据您的需求优化第{chapter_number}章",
-                "expected_result": "章节质量按您的要求提升",
-                "key_changes": [requirements]
+                "title": "精准修改",
+                "description": f"针对您提出的需求，定位章节中相关段落进行精准增删改，不动整体结构",
+                "expected_result": "需求点得到补充/修正，其他部分保持原样",
+                "key_changes": ["定位目标段落并修改", "新增必要的说明性文字", "保持上下文衔接流畅"]
             }]}
 
         # 确保至少有 2 个方案（如果 AI 只返回了 1 个，补充一个差异化方案）
         plans = result.get("plans", [])
         if len(plans) < 2:
-            scope_labels = {"minor": "小改（微调措辞）", "medium": "中改（调整段落）", "major": "大改（重写段落）"}
-            alt_scope = "major" if scope == "minor" else "minor"
+            scope_labels = {"minor": "局部微调措辞和补充", "medium": "调整相关段落结构", "major": "重写大段内容"}
+            alt_approach = "major" if scope == "minor" else "minor"
             plans.append({
                 "index": len(plans),
                 "title": "换个思路",
-                "description": f"采用不同策略：从{scope_labels.get(alt_scope, '另一种')}角度重新处理，重点调整叙事角度和细节密度",
-                "expected_result": "用不同的手法达到优化效果，给章节带来新鲜感",
-                "key_changes": [f"调整叙事节奏", f"重新组织关键场景", requirements]
+                "description": f"采用不同的修改策略：从{scope_labels.get(alt_approach, '另一种方式')}切入，用另一种写作手法实现同样目的",
+                "expected_result": f"相同需求，不同的表达方式，给读者不同的阅读体验",
+                "key_changes": ["调整叙事节奏", "改变信息透露方式", "重新组织关键场景"]
             })
             for i, p in enumerate(plans):
                 p["index"] = i
@@ -2157,6 +2164,212 @@ def delete_novel(novel_id):
             "success": False,
             "error": str(e)
         }), 500
+
+# ═══════════════════════════════════════════════════════════
+# 记忆系统 (Agent Memory) — 2026-06-28
+# ═══════════════════════════════════════════════════════════
+
+from agent_memory import AgentMemory, list_agent_memories, get_all_memories_summary
+
+
+@app.route('/api/novels/<novel_id>/memory/<agent_name>', methods=['GET'])
+def get_agent_memory(novel_id, agent_name):
+    """获取指定 agent 的记忆"""
+    try:
+        mem = AgentMemory(novel_id, agent_name)
+        data = mem.load()
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/novels/<novel_id>/memory/<agent_name>', methods=['POST'])
+def save_agent_memory_insight(novel_id, agent_name):
+    """向 agent 记忆中添加一条 insight"""
+    try:
+        body = request.get_json() or {}
+        insight = body.get("insight") or body
+        if not insight.get("content"):
+            return jsonify({"success": False, "error": "缺少 content 字段"}), 400
+        mem = AgentMemory(novel_id, agent_name)
+        insight_id = mem.add_insight(insight)
+        return jsonify({"success": True, "data": {"insight_id": insight_id}})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/novels/<novel_id>/memory/<agent_name>/<insight_id>', methods=['DELETE'])
+def delete_agent_memory_insight(novel_id, agent_name, insight_id):
+    """删除 agent 记忆中的某条 insight"""
+    try:
+        mem = AgentMemory(novel_id, agent_name)
+        ok = mem.delete_insight(insight_id)
+        if ok:
+            return jsonify({"success": True, "message": "已删除"})
+        return jsonify({"success": False, "error": "未找到该条目"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/novels/<novel_id>/memory/summary', methods=['GET'])
+def get_memory_summary(novel_id):
+    """获取所有 agent 的记忆摘要列表"""
+    try:
+        agent_list = list_agent_memories(novel_id)
+        context_text = get_all_memories_summary(novel_id)
+        return jsonify({
+            "success": True,
+            "data": {"agents": agent_list, "context_text": context_text},
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════
+# 规则系统 (Novel Rules) — 2026-06-28
+# ═══════════════════════════════════════════════════════════
+
+from novel_rules import RulesManager, build_rules_dialogue_messages
+
+
+@app.route('/api/novels/<novel_id>/rules', methods=['GET'])
+def get_novel_rules(novel_id):
+    """获取小说的所有规则"""
+    try:
+        rm = RulesManager(novel_id)
+        data = rm.load()
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/novels/<novel_id>/rules', methods=['PUT'])
+def save_novel_rule(novel_id):
+    """保存/更新一条规则"""
+    try:
+        body = request.get_json() or {}
+        rule = body.get("rule", {})
+        if not rule.get("content"):
+            return jsonify({"success": False, "error": "规则 content 不能为空"}), 400
+        rm = RulesManager(novel_id)
+        rule_id = rule.get("id")
+        if rule_id:
+            ok = rm.update_rule(rule_id, rule)
+            if not ok:
+                return jsonify({"success": False, "error": "未找到该规则"}), 404
+            return jsonify({"success": True, "data": {"rule_id": rule_id, "action": "updated"}})
+        else:
+            new_id = rm.add_rule(rule)
+            return jsonify({"success": True, "data": {"rule_id": new_id, "action": "created"}})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/novels/<novel_id>/rules/<rule_id>', methods=['DELETE'])
+def delete_novel_rule(novel_id, rule_id):
+    """删除一条规则"""
+    try:
+        rm = RulesManager(novel_id)
+        ok = rm.delete_rule(rule_id)
+        if ok:
+            return jsonify({"success": True, "message": "规则已删除"})
+        return jsonify({"success": False, "error": "未找到该规则"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/novels/<novel_id>/rules/dialogue', methods=['POST'])
+def rules_dialogue(novel_id):
+    """规则建立对话 — AI 写作教练帮助作者梳理写作规则（复用优化对话模式）"""
+    try:
+        body = request.get_json() or {}
+        messages = body.get("messages") or []
+        novel_title = body.get("novel_title", "")
+        existing_rules = body.get("existing_rules") or []
+
+        user_turns = sum(1 for m in messages if m.get("role") == "user")
+
+        # 加载已有规则文本
+        rules_text = ""
+        if existing_rules:
+            rules_lines = []
+            for r in existing_rules:
+                rules_lines.append(f"- {r.get('title','')}: {r.get('content','')}")
+            rules_text = "\n".join(rules_lines)
+        elif novel_id:
+            try:
+                rm = RulesManager(novel_id)
+                data = rm.load()
+                for r in data.get("rules", []):
+                    rules_text += f"- {r.get('title','')}: {r.get('content','')}\n"
+            except:
+                pass
+
+        if user_turns == 0:
+            stage_hint = "这是第 1 轮。用户刚开始，先问他最想解决什么问题，给 4-5 个具体选项引导他开口。"
+        else:
+            stage_hint = f"这是第 {user_turns + 1} 轮。仔细读用户上一轮说了什么，接着他的话往下聊，不要重复问一样的问题。如果他说得很具体了，帮他提炼成一条规则并确认（stage=confirming）；如果还需要追问，继续深入但一定要和上一轮的内容衔接。不要着急确认，确保理解透用户意图。"
+
+        system_prompt = f"""你是一位经验丰富的网文写作教练，正在和作者一对一面聊，帮他建立小说的写作规则。
+
+当前小说：{novel_title or '未命名'}
+
+已有规则：
+{rules_text or '（暂无）'}
+
+{stage_hint}
+
+你的对话风格：
+- 像朋友聊天一样自然，不要废话、不要客气寒暄
+- 一定要承接用户上一轮说的内容，不要重新开始一个新话题
+- 如果用户说得很泛（比如"注意人物塑造"），追问具体例子
+- 如果用户给了具体例子（比如"出场时要说明角色境界"），你就帮他提炼成一条可以写进 prompt 的规则
+- 记住用户说过的话，不要让他重复
+- 一次只聊一个维度，聊透了再问要不要换话题
+
+返回纯 JSON（不要 markdown 代码块）：
+{{"question":"...","options":["...","..."],"stage":"clarifying","rule_update":null}}
+
+- stage 可以是 clarifying（还在了解需求）/ confirming（提炼出规则，让用户确认）/ done（规则已确认保存）
+- 当 stage=confirming 时，把提炼出的规则放在 rule_update 字段：
+  rule_update: {{"category":"writing_style|character|plot|dialogue|pacing|worldbuilding|general","title":"简短标题","content":"具体规则内容","priority":"must|should|may"}}
+- 当 stage=done 时，question 中告诉用户规则已保存"""
+
+        llm_messages = [{"role": "system", "content": system_prompt}]
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            llm_messages.append({"role": role, "content": content})
+
+        if not messages:
+            llm_messages.append({"role": "user", "content": "我想给这本小说建立一些写作规则"})
+
+        agent = _LLMAgent("规则对话")
+        agent.model = "deepseek-v4-pro"
+        response = agent.call_llm(llm_messages, temperature=0.7, max_tokens=800)
+
+        result = agent.parse_json_response(response)
+        if not result or not isinstance(result, dict) or "question" not in result:
+            # JSON 解析失败 → 直接用 LLM 原始文本作为 question，不再用硬编码 fallback
+            print(f"[rules-dialogue] JSON 解析失败，使用原始文本。raw[:200]: {response[:200]}")
+            raw_text = (result or {}).get("content", "") if isinstance(result, dict) else ""
+            if not raw_text:
+                raw_text = response.strip().replace('```json', '').replace('```', '').strip()
+            result = {
+                "question": raw_text or "抱歉，我好像走神了。我们继续聊，你刚才想说什么？",
+                "options": ["继续说", "换个话题"],
+                "stage": "clarifying",
+                "rule_update": None,
+            }
+
+        return jsonify({"success": True, "data": result})
+
+    except Exception as e:
+        print(f"规则对话错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"对话失败: {str(e)}"}), 500
+
 
 if __name__ == '__main__':
     # 确保前端目录存在
