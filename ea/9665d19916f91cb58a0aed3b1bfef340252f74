@@ -1,0 +1,22 @@
+agents/__init__.py
+  s_3ff4eb800b3dcf::t_a781bf654d2565 66-67
+  s_3ff4eb800b3dcf::t_7fa33f7b50c6e5 39
+agents/continuation_arc_planner.py
+  s_3ff4eb800b3dcf::t_32202cc80612d1 1-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "ea9665d19916f91cb58a0aed3b1bfef340252f74",
+  "prompts": {},
+  "sessions": {
+    "s_3ff4eb800b3dcf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72140990-acbb-4c1e-a702-b0e4ce456497",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
