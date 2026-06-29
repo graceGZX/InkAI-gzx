@@ -4158,6 +4158,7 @@ window.confirmDialogueOption = async (idx) => {
     var container = document.getElementById('dialogue-container');
     var messagesEl = document.getElementById('dialogue-messages');
     var typingId2 = 'typing-confirm-' + Date.now();
+    var tb2;
     if (messagesEl) {
         messagesEl.innerHTML += '<div id="' + typingId2 + '" class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble"><span class="spinner-border spinner-border-sm me-1"></span>处理中...</div></div>';
         messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -4180,7 +4181,7 @@ window.confirmDialogueOption = async (idx) => {
                 })
             });
             if (resp.success && resp.data.stage === 'done') {
-                var tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
+                tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
                 renderDialogue(resp.data, info.novelId, info.chapterNumber);
             } else {
                 var reqText = state.messages.filter(function(m) { return m.role === 'user'; }).map(function(m) { return m.content; }).join('；');
@@ -4191,15 +4192,17 @@ window.confirmDialogueOption = async (idx) => {
                     suggested_scope: 'minor',
                     options: []
                 };
-                var tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
+                tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
                 renderDialogue(doneData, info.novelId, info.chapterNumber);
             }
         } catch (e) {
-            container.innerHTML = '<div class="alert alert-warning py-2">确认失败: ' + e.message + '</div>';
+            var tbCatch = document.getElementById(typingId2); if (tbCatch) tbCatch.remove();
+            var mesCatch = document.getElementById('dialogue-messages');
+            if (mesCatch) mesCatch.innerHTML += '<div class="alert alert-warning py-2 mt-1">确认失败: ' + Utils.escapeHtml(e.message) + '</div>';
         }
     } else {
         // 用户点"重新描述需求"或"还有补充" → 聚焦输入框让用户打字，不发后端
-        var tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
+        tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
         renderDialogue({
             stage: 'clarifying',
             question: '请输入您的补充或修改意见：',
