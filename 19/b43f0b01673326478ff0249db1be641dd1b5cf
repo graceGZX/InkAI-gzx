@@ -1,0 +1,22 @@
+app.py
+  s_3ff4eb800b3dcf::t_681687967f3842 18
+  s_3ff4eb800b3dcf::t_c753c8e27da99c 2378-2422
+  s_3ff4eb800b3dcf::t_7583468bdc2640 1699-1702,1704-1706
+  s_3ff4eb800b3dcf::t_823a2e1bbcfb3d 1654,1656-1658,1664,1667,1673-1675,1680-1684,1687-1691
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "19b43f0b01673326478ff0249db1be641dd1b5cf",
+  "prompts": {},
+  "sessions": {
+    "s_3ff4eb800b3dcf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72140990-acbb-4c1e-a702-b0e4ce456497",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
