@@ -1,0 +1,19 @@
+docs/superpowers/plans/2026-06-29-cross-chapter-arc.md
+  s_3ff4eb800b3dcf::t_197245c60171ed 1-930
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "a3d1454f690d38d51448c3da4c41ec5d4ad40c29",
+  "prompts": {},
+  "sessions": {
+    "s_3ff4eb800b3dcf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72140990-acbb-4c1e-a702-b0e4ce456497",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
