@@ -1,0 +1,23 @@
+inkai_workflow_optimized.py
+  s_3ff4eb800b3dcf::t_b3b63d7b5b2319 687-701
+  s_3ff4eb800b3dcf::t_8022ba29fc2a46 1364-1368,1372
+  s_3ff4eb800b3dcf::t_28968f0554f817 667-673
+  s_3ff4eb800b3dcf::t_6c2a1b9e5a922f 765-780
+  s_3ff4eb800b3dcf::t_d0ba0111f02618 41-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "8d14ad8b795a37a0bb9641a8a826ce6e41d160ff",
+  "prompts": {},
+  "sessions": {
+    "s_3ff4eb800b3dcf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72140990-acbb-4c1e-a702-b0e4ce456497",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
