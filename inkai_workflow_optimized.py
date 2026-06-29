@@ -38,7 +38,8 @@ from agents import (
     ContinuationWorldConsistencyImprover,
     ContinuationStyleConsistencyImprover,
     ContinuationReaderExperienceImprover,
-    ContinuationLongTermConsistencyImprover
+    ContinuationLongTermConsistencyImprover,
+    ContinuationArcPlanner
 )
 
 # 导入核心管理模块
@@ -663,6 +664,13 @@ class InkAIWorkflowOptimized:
             "next_step": "storyline_generation"
         }
     
+    def _check_arc_trigger(self, novel_id: str) -> bool:
+        """检查是否需要触发弧规划：无活跃弧，或当前弧剩余章数 <= 1"""
+        arc = self.data_manager.load_active_arc(novel_id)
+        if arc is None:
+            return True
+        return arc.get("chapters_remaining", 0) <= 1
+
     def generate_continuation_storyline(self, novel_id: str = None) -> Dict[str, Any]:
         """生成续写故事线"""
         print("开始生成续写故事线...")
@@ -675,6 +683,21 @@ class InkAIWorkflowOptimized:
         
         if not self.context or not self.context.is_continuation:
             return {"error": "请先开始续写流程"}
+
+        # 弧触发检查：无活跃弧或弧快结束时，先规划新弧，返回草案让用户确认
+        _novel_id = novel_id or (self.context.novel_id if self.context else None)
+        if _novel_id and self._check_arc_trigger(_novel_id):
+            kb = self.context.continuation_data.get("knowledge_base", {})
+            chapters = self.data_manager.get_novel_chapters(_novel_id)
+            kb["current_chapter_number"] = len(chapters) + 1
+            planner = ContinuationArcPlanner()
+            plan_result = planner.process({"knowledge_base": kb})
+            if plan_result.get("success"):
+                return {
+                    "arc_pending": True,
+                    "arc_draft": plan_result["arc"],
+                    "message": "请先确认故事弧计划，再继续生成故事线"
+                }
 
         # 向量语义检索：找到与当前剧情方向最相关的前N章
         kb = self.context.continuation_data["knowledge_base"]
@@ -738,6 +761,22 @@ class InkAIWorkflowOptimized:
             print(f"[SceneContinuity] 上一章场景状态: span={previous_scene.get('scene_span_chapters')}, "
                   f"phase={previous_scene.get('scene_phase')}, "
                   f"continues={previous_scene.get('continues_from_previous')}")
+
+        # 注入活跃弧上下文到知识库
+        _nid = novel_id or (self.context.novel_id if self.context else None)
+        if _nid:
+            _active_arc = self.data_manager.load_active_arc(_nid)
+            if _active_arc:
+                kb["active_arc"] = _active_arc
+                # 计算本章是弧的第几章
+                _arc_chapter_idx = (_active_arc["planned_chapters"]
+                                    - _active_arc["chapters_remaining"] + 1)
+                _roles = _active_arc.get("chapter_roles", [])
+                kb["current_arc_role"] = (
+                    _roles[_arc_chapter_idx - 1]
+                    if 0 < _arc_chapter_idx <= len(_roles)
+                    else {}
+                )
 
         # 调用续写故事线生成智能体
         result = self.continuation_storyline_generator.process({
@@ -1322,10 +1361,15 @@ class InkAIWorkflowOptimized:
         success = self.data_manager.save_chapter(self.context.novel_id, current_chapter_number, chapter_data)
         
         if success:
+            # 更新故事弧进度（chapters_remaining - 1，归零时自动清除）
+            _nid_save = novel_id or (self.context.novel_id if self.context else None)
+            if _nid_save:
+                self.data_manager.update_arc_progress(_nid_save)
+
             # 验证章节字数
             word_count = len(clean_content)
             MIN_WORD_COUNT = 2500
-            
+
             # 清除相关缓存，避免状态检测错误
             if "next_chapter_storyline" in self.context._cache:
                 del self.context._cache["next_chapter_storyline"]
