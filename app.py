@@ -2383,7 +2383,7 @@ def arc_plan(novel_id):
         if not workflow.context or workflow.context.novel_id != novel_id:
             return jsonify({"success": False, "error": "请先开始续写流程"}), 400
 
-        kb = workflow.context.continuation_data.get("knowledge_base", {})
+        kb = dict(workflow.context.continuation_data.get("knowledge_base", {}))
         chapters = workflow.data_manager.get_novel_chapters(novel_id)
         kb["current_chapter_number"] = len(chapters) + 1
 
