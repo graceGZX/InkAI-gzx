@@ -4067,7 +4067,7 @@ var renderDialogue = function(data, novelId, chapterNumber) {
                             var cls = optIdx === 0 ? 'chat-reply-btn confirm' : 'chat-reply-btn secondary';
                             html += '<span class="' + cls + '" onclick="confirmDialogueOption(' + optIdx + ')">' + Utils.escapeHtml(opt) + '</span>';
                         } else {
-                            html += '<span class="chat-reply-btn" onclick="selectDialogueOption(\'' + opt.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')">' + Utils.escapeHtml(opt) + '</span>';
+                            html += '<span class="chat-reply-btn" onclick="selectDialogueOption(\'' + Utils.escapeHtml(opt).replace(/'/g, "\\'") + '\')">' + Utils.escapeHtml(opt) + '</span>';
                         }
                     });
                     html += '</div>';
