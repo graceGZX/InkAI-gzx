@@ -1,0 +1,24 @@
+agents/continuation_storyline_generator.py
+  s_3ff4eb800b3dcf::t_d903b573d2767b 56-75,78-79
+  s_3ff4eb800b3dcf::t_30ed0ce8c180bd 197-211
+  s_3ff4eb800b3dcf::t_f730cf9b7b744a 271-277
+  s_3ff4eb800b3dcf::t_28236304f90556 50-51
+  s_3ff4eb800b3dcf::t_c46466c8b7c19e 76-77
+  s_3ff4eb800b3dcf::t_9c3a9631882fd6 115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "c9658bc603c942be388b3df16912f4807eee3845",
+  "prompts": {},
+  "sessions": {
+    "s_3ff4eb800b3dcf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72140990-acbb-4c1e-a702-b0e4ce456497",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
