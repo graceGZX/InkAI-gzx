@@ -7602,7 +7602,7 @@ window.goToContinuationNovelList = Navigation.goToContinuationNovelList;
 // 小说规则管理 (Novel Rules) — 2026-06-28
 // ──────────────────────────────────────────────
 
-window._rulesDialogue = { messages: [], done: false };
+window._rulesDialogue = { messages: [], done: false, existingRules: [] };
 
 window.showRulesPage = function () {
     Navigation.showPage('rules-management-page');
@@ -7693,6 +7693,7 @@ window.startRulesDialogue = function () {
 
     Utils.apiRequest('/novels/' + novelId + '/rules').then(function (resp) {
         var existingRules = (resp.success && resp.data && resp.data.rules) ? resp.data.rules : [];
+        window._rulesDialogue.existingRules = existingRules;   // ← 新增这行
         return Utils.apiRequest('/novels/' + novelId + '/rules/dialogue', {
             method: 'POST',
             body: JSON.stringify({ messages: [], novel_title: novelTitle, existing_rules: existingRules })
@@ -7767,37 +7768,48 @@ window.selectRulesOption = function (option, idx) {
     var novelId = AppState.selectedNovelId;
     ds.messages.push({ role: 'user', content: option });
 
-    // 点击"完成"类选项
     if (option.indexOf('结束') >= 0 || option.indexOf('完成') >= 0 || option.indexOf('不再添加') >= 0) {
         document.getElementById('rules-dialogue-container').style.display = 'none';
         loadRulesList();
         return;
     }
 
+    // append 用户气泡 + 等待气泡（不替换整个消息区）
     var msgArea = document.getElementById('rules-dialogue-messages');
-    msgArea.innerHTML = '<div class="text-center py-2 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>思考中...</div>';
+    var typingId = 'typing-rules-' + Date.now();
+    msgArea.innerHTML +=
+        '<div class="dialogue-message user"><div>' + Utils.escapeHtml(option) + '</div></div>' +
+        '<div id="' + typingId + '" class="dialogue-message assistant"><div><span class="spinner-border spinner-border-sm me-1"></span>思考中...</div></div>';
+    msgArea.scrollTop = msgArea.scrollHeight;
 
     var novelTitle = '';
     if (AppState.continuationData && AppState.continuationData.novel_data) {
         novelTitle = AppState.continuationData.novel_data.title || '';
     }
 
-    // 只传 role + content
     var textMessages = ds.messages.map(function (m) { return { role: m.role, content: m.content }; });
 
     fetch(API_BASE + '/novels/' + novelId + '/rules/dialogue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: textMessages, novel_title: novelTitle, existing_rules: [] })
+        body: JSON.stringify({
+            messages: textMessages,
+            novel_title: novelTitle,
+            existing_rules: ds.existingRules   // ← 传入已有规则（不再传空数组）
+        })
     })
     .then(function (r) { return r.json(); })
     .then(function (resp) {
+        var tb = document.getElementById(typingId);
+        if (tb) tb.remove();
         if (!resp.success) { Utils.showMessage(resp.error || '对话失败', 'danger'); renderRulesDialogue(); return; }
         var data = resp.data;
         ds.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage, rule_update: data.rule_update });
         renderRulesDialogue();
     })
     .catch(function (e) {
+        var tb = document.getElementById(typingId);
+        if (tb) tb.remove();
         Utils.showMessage('对话失败: ' + e.message, 'danger');
         renderRulesDialogue();
     });
@@ -7826,6 +7838,12 @@ var saveRuleToServer = function (rule) {
         if (resp.success) {
             Utils.showMessage('规则已保存', 'success');
             loadRulesList();
+            // 刷新 existingRules 缓存，下一轮对话能看到刚保存的规则
+            Utils.apiRequest('/novels/' + novelId + '/rules').then(function(r) {
+                if (r.success && r.data && r.data.rules) {
+                    window._rulesDialogue.existingRules = r.data.rules;
+                }
+            });
         } else {
             Utils.showMessage('保存失败: ' + (resp.error || ''), 'danger');
         }
