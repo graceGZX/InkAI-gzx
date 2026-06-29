@@ -792,7 +792,16 @@ const ContinuationManager = {
                 default:
                     throw new Error('未知的续写步骤: ' + stepName);
             }
-            
+
+            // 检测故事弧待确认（仅针对 storyline_generation）
+            if (stepName === 'storyline_generation' && response && response.arc_pending && response.arc_draft) {
+                window.showArcConfirmModal(novelId, response.arc_draft, function() {
+                    // 用户确认后自动重试故事线生成
+                    ContinuationManager.executeContinuationStep('storyline_generation', novelId);
+                });
+                return;
+            }
+
             if (response.success) {
                 const stepNames = {
                     'storyline_generation': '续写故事线生成',
@@ -7984,3 +7993,136 @@ window.showAgentMemory = function () {
         document.getElementById('memoryViewModal').addEventListener('hidden.bs.modal', function () { this.remove(); });
     });
 };
+
+// ─── 故事弧确认弹窗 ────────────────────────────────────────────
+var _arcDraft = null;          // 当前弧草案
+var _arcNovelId = null;        // 当前操作的 novelId
+var _arcConfirmCallback = null; // 确认后的回调（重试写章）
+
+// 渲染弧草案到 Modal
+function _renderArcModal(arc) {
+    var roles = arc.chapter_roles || [];
+    var milestones = arc.character_milestones || {};
+    var mainM = milestones.main || {};
+    var supportingM = milestones.supporting || [];
+
+    var rolesHtml = roles.map(function(r, i) {
+        var roleLabel = {arc_open:'开篇', arc_mid:'中段', arc_climax:'高潮', arc_close:'收尾'}[r.role] || r.role;
+        var endingLabel = {cliffhanger:'悬念截断', hook:'留钩', pause:'自然停顿', resolution:'完整收尾'}[r.ending_type] || r.ending_type;
+        return '<tr>' +
+            '<td class="text-center">' + (i + 1) + '</td>' +
+            '<td><span class="badge bg-secondary">' + roleLabel + '</span></td>' +
+            '<td><span class="badge bg-info text-dark">' + endingLabel + '</span></td>' +
+            '<td><input class="form-control form-control-sm arc-milestone-input" data-idx="' + i + '" value="' + Utils.escapeHtml(r.milestone || '') + '"></td>' +
+            '</tr>';
+    }).join('');
+
+    var mainMilestoneHtml = mainM.chapter_offset
+        ? '<div class="alert alert-success py-1 px-2 small mb-1">主角第 ' + mainM.chapter_offset + ' 章：' + Utils.escapeHtml(mainM.description || '') + '（' + (mainM.type || '') + '）</div>'
+        : '<div class="text-muted small">无主角里程碑</div>';
+
+    var supportingHtml = supportingM.map(function(s) {
+        return '<div class="alert alert-light py-1 px-2 small mb-1">' + Utils.escapeHtml(s.name || '') + ' 第 ' + s.chapter_offset + ' 章：' + Utils.escapeHtml(s.description || '') + '</div>';
+    }).join('') || '<div class="text-muted small">无配角里程碑</div>';
+
+    var arcTypeMap = {growth:'成长弧', conflict:'冲突弧', exploration:'探索弧', revelation:'揭露弧'};
+
+    document.getElementById('arc-modal-body').innerHTML =
+        '<div class="row mb-3">' +
+        '  <div class="col-md-6"><label class="form-label fw-bold">弧名称</label>' +
+        '    <input class="form-control" id="arc-edit-name" value="' + Utils.escapeHtml(arc.arc_name || '') + '"></div>' +
+        '  <div class="col-md-3"><label class="form-label fw-bold">类型</label>' +
+        '    <select class="form-select" id="arc-edit-type">' +
+        ['growth','conflict','exploration','revelation'].map(function(t) {
+            return '<option value="' + t + '"' + (arc.arc_type === t ? ' selected' : '') + '>' + (arcTypeMap[t] || t) + '</option>';
+        }).join('') +
+        '  </select></div>' +
+        '  <div class="col-md-3"><label class="form-label fw-bold">计划章数</label>' +
+        '    <input class="form-control" id="arc-edit-chapters" type="number" min="2" max="10" value="' + (arc.planned_chapters || roles.length) + '"></div>' +
+        '</div>' +
+        '<h6 class="fw-bold mb-2">每章规划（可编辑里程碑）</h6>' +
+        '<table class="table table-sm table-bordered mb-3"><thead><tr>' +
+        '<th style="width:50px">章</th><th style="width:80px">定位</th><th style="width:90px">结尾</th><th>里程碑</th>' +
+        '</tr></thead><tbody>' + rolesHtml + '</tbody></table>' +
+        '<h6 class="fw-bold mb-2">角色里程碑</h6>' +
+        mainMilestoneHtml + supportingHtml;
+}
+
+// 从 Modal 收集用户编辑结果
+function _collectArcFromModal(draft) {
+    var arc = JSON.parse(JSON.stringify(draft)); // 深拷贝
+    arc.arc_name = document.getElementById('arc-edit-name').value.trim() || arc.arc_name;
+    arc.arc_type = document.getElementById('arc-edit-type').value || arc.arc_type;
+    var chapInput = parseInt(document.getElementById('arc-edit-chapters').value) || arc.planned_chapters;
+    arc.planned_chapters = chapInput;
+    arc.chapters_remaining = chapInput;
+
+    // 收集里程碑编辑
+    document.querySelectorAll('.arc-milestone-input').forEach(function(el) {
+        var idx = parseInt(el.getAttribute('data-idx'));
+        if (arc.chapter_roles[idx]) {
+            arc.chapter_roles[idx].milestone = el.value.trim();
+        }
+    });
+    return arc;
+}
+
+// 当 storyline API 返回 arc_pending 时调用
+window.showArcConfirmModal = function(novelId, arcDraft, retryCallback) {
+    _arcDraft = arcDraft;
+    _arcNovelId = novelId;
+    _arcConfirmCallback = retryCallback;
+    _renderArcModal(arcDraft);
+    new bootstrap.Modal(document.getElementById('arcConfirmModal')).show();
+};
+
+// 确认按钮
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('arc-btn-confirm').addEventListener('click', async function() {
+        var arc = _collectArcFromModal(_arcDraft);
+        try {
+            var resp = await Utils.apiRequest('/novels/' + _arcNovelId + '/arc/confirm', {
+                method: 'POST',
+                body: JSON.stringify({ arc: arc })
+            });
+            if (!resp.success) throw new Error(resp.error || '保存弧计划失败');
+            bootstrap.Modal.getInstance(document.getElementById('arcConfirmModal')).hide();
+            if (_arcConfirmCallback) _arcConfirmCallback();
+        } catch (e) {
+            alert('保存弧计划失败：' + e.message);
+        }
+    });
+
+    document.getElementById('arc-btn-regen').addEventListener('click', async function() {
+        if (!_arcNovelId) return;
+        try {
+            var resp = await Utils.apiRequest('/novels/' + _arcNovelId + '/arc/plan', { method: 'POST' });
+            if (!resp.success) throw new Error(resp.error || '重新生成失败');
+            _arcDraft = resp.data;
+            _renderArcModal(_arcDraft);
+        } catch (e) {
+            alert('重新生成失败：' + e.message);
+        }
+    });
+
+    document.getElementById('arc-btn-skip').addEventListener('click', async function() {
+        // 跳过弧：写入一个单章占位弧，让 chapters_remaining = 0 不阻碍写章
+        if (!_arcNovelId) return;
+        var skipArc = {
+            arc_id: 'skip_' + Date.now(),
+            arc_name: '单章',
+            arc_type: 'standalone',
+            start_chapter: 0,
+            planned_chapters: 0,
+            chapters_remaining: 0,
+            chapter_roles: [],
+            character_milestones: { main: null, supporting: [] }
+        };
+        await Utils.apiRequest('/novels/' + _arcNovelId + '/arc/confirm', {
+            method: 'POST',
+            body: JSON.stringify({ arc: skipArc })
+        });
+        bootstrap.Modal.getInstance(document.getElementById('arcConfirmModal')).hide();
+        if (_arcConfirmCallback) _arcConfirmCallback();
+    });
+});
