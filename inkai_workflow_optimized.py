@@ -687,8 +687,9 @@ class InkAIWorkflowOptimized:
         # 弧触发检查：无活跃弧或弧快结束时，先规划新弧，返回草案让用户确认
         _novel_id = novel_id or (self.context.novel_id if self.context else None)
         if _novel_id and self._check_arc_trigger(_novel_id):
-            kb = self.context.continuation_data.get("knowledge_base", {})
+            _kb_orig = self.context.continuation_data.get("knowledge_base", {})
             chapters = self.data_manager.get_novel_chapters(_novel_id)
+            kb = dict(_kb_orig)
             kb["current_chapter_number"] = len(chapters) + 1
             planner = ContinuationArcPlanner()
             plan_result = planner.process({"knowledge_base": kb})
