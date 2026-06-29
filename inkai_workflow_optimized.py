@@ -1368,7 +1368,8 @@ class InkAIWorkflowOptimized:
 
             # 验证章节字数
             word_count = len(clean_content)
-            MIN_WORD_COUNT = 2500
+            MIN_WORD_COUNT = 5000
+
 
             # 清除相关缓存，避免状态检测错误
             if "next_chapter_storyline" in self.context._cache:
