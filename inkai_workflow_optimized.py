@@ -665,11 +665,11 @@ class InkAIWorkflowOptimized:
         }
     
     def _check_arc_trigger(self, novel_id: str) -> bool:
-        """检查是否需要触发弧规划：无活跃弧，或当前弧剩余章数 <= 1"""
+        """检查是否需要触发弧规划：无活跃弧，或当前弧剩余章数 <= 0（已全部写完）"""
         arc = self.data_manager.load_active_arc(novel_id)
         if arc is None:
             return True
-        return arc.get("chapters_remaining", 0) <= 1
+        return arc.get("chapters_remaining", 0) <= 0
 
     def generate_continuation_storyline(self, novel_id: str = None) -> Dict[str, Any]:
         """生成续写故事线"""
@@ -808,6 +808,27 @@ class InkAIWorkflowOptimized:
                 print(f"❌ 故事线数据不完整，缺少字段: {missing_fields}")
                 return {"success": False, "error": f"故事线数据不完整，缺少: {', '.join(missing_fields)}"}
         
+        # Python 层兜底：若 LLM 漏填 arc_context / ending_type，从 kb 中强制填充
+        if isinstance(storyline_data, dict):
+            _arc = kb.get("active_arc")
+            _arc_role = kb.get("current_arc_role", {})
+            if _arc and not storyline_data.get("arc_context"):
+                _pc = _arc.get("planned_chapters", 0)
+                _cr = _arc.get("chapters_remaining", 0)
+                storyline_data["arc_context"] = {
+                    "arc_id": _arc.get("arc_id", ""),
+                    "arc_name": _arc.get("arc_name", ""),
+                    "arc_type": _arc.get("arc_type", ""),
+                    "arc_chapter_index": _pc - _cr + 1 if _pc >= _cr > 0 else 1,
+                    "arc_total_chapters": _pc,
+                    "arc_role": _arc_role.get("role", "arc_mid"),
+                    "chapters_remaining": _cr,
+                }
+                print(f"[ArcFallback] arc_context 由 Python 层补填: arc={_arc.get('arc_name')} remaining={_cr}")
+            if _arc and _arc_role and not storyline_data.get("ending_type"):
+                storyline_data["ending_type"] = _arc_role.get("ending_type", "hook")
+                print(f"[ArcFallback] ending_type 由 Python 层补填: {storyline_data['ending_type']}")
+
         # 保存故事线到上下文
         self.context.cache_result("next_chapter_storyline", result["next_chapter_storyline"])
         

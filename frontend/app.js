@@ -8106,15 +8106,16 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.getElementById('arc-btn-skip').addEventListener('click', async function() {
-        // 跳过弧：写入一个单章占位弧，让 chapters_remaining = 0 不阻碍写章
+        // 跳过弧：写入一个单章占位弧，remaining=1 表示还需写一章后才归零
+        // 注意：不能写 0，否则 _check_arc_trigger(<=0) 下次写章立即再触发弹窗死循环
         if (!_arcNovelId) return;
         var skipArc = {
             arc_id: 'skip_' + Date.now(),
             arc_name: '单章',
             arc_type: 'standalone',
             start_chapter: 0,
-            planned_chapters: 0,
-            chapters_remaining: 0,
+            planned_chapters: 1,
+            chapters_remaining: 1,
             chapter_roles: [],
             character_milestones: { main: null, supporting: [] }
         };
