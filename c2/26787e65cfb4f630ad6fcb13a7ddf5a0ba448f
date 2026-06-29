@@ -1,0 +1,19 @@
+inkai_workflow_optimized.py
+  s_3ff4eb800b3dcf::t_cdb1490db172fe 690,692
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "c226787e65cfb4f630ad6fcb13a7ddf5a0ba448f",
+  "prompts": {},
+  "sessions": {
+    "s_3ff4eb800b3dcf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72140990-acbb-4c1e-a702-b0e4ce456497",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
