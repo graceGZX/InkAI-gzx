@@ -36,6 +36,7 @@ from .continuation_world_consistency_improver import ContinuationWorldConsistenc
 from .continuation_style_consistency_improver import ContinuationStyleConsistencyImprover
 from .continuation_reader_experience_improver import ContinuationReaderExperienceImprover
 from .continuation_long_term_consistency_improver import ContinuationLongTermConsistencyImprover
+from .continuation_arc_planner import ContinuationArcPlanner
 
 __all__ = [
     'TagSelectorAgent',
@@ -62,5 +63,6 @@ __all__ = [
     'ContinuationWorldConsistencyImprover',
     'ContinuationStyleConsistencyImprover',
     'ContinuationReaderExperienceImprover',
-    'ContinuationLongTermConsistencyImprover'
+    'ContinuationLongTermConsistencyImprover',
+    'ContinuationArcPlanner'
 ]
