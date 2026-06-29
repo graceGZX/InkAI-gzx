@@ -8007,8 +8007,8 @@ function _renderArcModal(arc) {
     var supportingM = milestones.supporting || [];
 
     var rolesHtml = roles.map(function(r, i) {
-        var roleLabel = {arc_open:'开篇', arc_mid:'中段', arc_climax:'高潮', arc_close:'收尾'}[r.role] || r.role;
-        var endingLabel = {cliffhanger:'悬念截断', hook:'留钩', pause:'自然停顿', resolution:'完整收尾'}[r.ending_type] || r.ending_type;
+        var roleLabel = {arc_open:'开篇', arc_mid:'中段', arc_climax:'高潮', arc_close:'收尾'}[r.role] || Utils.escapeHtml(r.role);
+        var endingLabel = {cliffhanger:'悬念截断', hook:'留钩', pause:'自然停顿', resolution:'完整收尾'}[r.ending_type] || Utils.escapeHtml(r.ending_type);
         return '<tr>' +
             '<td class="text-center">' + (i + 1) + '</td>' +
             '<td><span class="badge bg-secondary">' + roleLabel + '</span></td>' +
@@ -8018,7 +8018,7 @@ function _renderArcModal(arc) {
     }).join('');
 
     var mainMilestoneHtml = mainM.chapter_offset
-        ? '<div class="alert alert-success py-1 px-2 small mb-1">主角第 ' + mainM.chapter_offset + ' 章：' + Utils.escapeHtml(mainM.description || '') + '（' + (mainM.type || '') + '）</div>'
+        ? '<div class="alert alert-success py-1 px-2 small mb-1">主角第 ' + mainM.chapter_offset + ' 章：' + Utils.escapeHtml(mainM.description || '') + '（' + Utils.escapeHtml(mainM.type || '') + '）</div>'
         : '<div class="text-muted small">无主角里程碑</div>';
 
     var supportingHtml = supportingM.map(function(s) {
@@ -8118,11 +8118,16 @@ document.addEventListener('DOMContentLoaded', function() {
             chapter_roles: [],
             character_milestones: { main: null, supporting: [] }
         };
-        await Utils.apiRequest('/novels/' + _arcNovelId + '/arc/confirm', {
-            method: 'POST',
-            body: JSON.stringify({ arc: skipArc })
-        });
-        bootstrap.Modal.getInstance(document.getElementById('arcConfirmModal')).hide();
-        if (_arcConfirmCallback) _arcConfirmCallback();
+        try {
+            var resp = await Utils.apiRequest('/novels/' + _arcNovelId + '/arc/confirm', {
+                method: 'POST',
+                body: JSON.stringify({ arc: skipArc })
+            });
+            if (!resp.success) throw new Error(resp.error || '跳过弧失败');
+            bootstrap.Modal.getInstance(document.getElementById('arcConfirmModal')).hide();
+            if (_arcConfirmCallback) _arcConfirmCallback();
+        } catch (e) {
+            alert('跳过弧失败：' + e.message);
+        }
     });
 });
