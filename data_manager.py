@@ -84,16 +84,42 @@ class DataManager:
         try:
             novel_dir = os.path.join(self.novels_dir, novel_id)
             data_file = os.path.join(novel_dir, f"{data_type}.json")
-            
+
             if not os.path.exists(data_file):
                 return None
-            
+
             with open(data_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
             print(f"加载数据失败: {e}")
             return None
-    
+
+    def save_active_arc(self, novel_id: str, arc: Dict[str, Any]) -> bool:
+        """保存当前活跃故事弧计划"""
+        return self.save_novel_data(novel_id, "active_arc", arc)
+
+    def load_active_arc(self, novel_id: str) -> Optional[Dict[str, Any]]:
+        """加载当前活跃故事弧计划，不存在时返回 None"""
+        return self.load_novel_data(novel_id, "active_arc")
+
+    def update_arc_progress(self, novel_id: str) -> bool:
+        """章节写完后递减 chapters_remaining；归零时删除弧文件"""
+        arc = self.load_active_arc(novel_id)
+        if not arc:
+            return True
+        remaining = arc.get("chapters_remaining", 0) - 1
+        if remaining <= 0:
+            novel_dir = os.path.join(self.novels_dir, novel_id)
+            arc_file = os.path.join(novel_dir, "active_arc.json")
+            try:
+                if os.path.exists(arc_file):
+                    os.remove(arc_file)
+            except Exception as e:
+                print(f"删除弧文件失败: {e}")
+            return True
+        arc["chapters_remaining"] = remaining
+        return self.save_active_arc(novel_id, arc)
+
     def save_chapter(self, novel_id: str, chapter_number: int, chapter_content: Dict[str, Any],
                      auto_commit: bool = True) -> bool:
         """保存章节内容"""
@@ -1149,11 +1175,11 @@ class DataManager:
         return config.DATA_DIR
 
     def _git_commit(self, file_paths: List[str], message: str) -> bool:
-        """本地 git add + commit，静默执行，失败不抛异常"""
+        """本地 git add + commit + push，静默执行，失败不抛异常"""
         import subprocess
         repo = self._git_repo_root()
         try:
-            add_result = subprocess.run(
+            subprocess.run(
                 ["git", "-C", repo, "add"] + file_paths,
                 capture_output=True, text=True, timeout=30
             )
@@ -1163,14 +1189,23 @@ class DataManager:
             )
             if commit_result.returncode == 0:
                 print(f"Git 提交成功: {message}")
-                return True
             else:
-                # 可能 nothing to commit
                 if "nothing to commit" in commit_result.stdout or "nothing to commit" in commit_result.stderr:
                     print(f"Git: 无变更，跳过提交")
+                    return False
                 else:
                     print(f"Git 提交失败: {commit_result.stderr.strip()}")
-                return False
+                    return False
+
+            push_result = subprocess.run(
+                ["git", "-C", repo, "push"],
+                capture_output=True, text=True, timeout=60
+            )
+            if push_result.returncode == 0:
+                print(f"Git 推送成功: {message}")
+            else:
+                print(f"Git 推送失败: {push_result.stderr.strip()}")
+            return True
         except Exception as e:
             print(f"Git 操作异常: {e}")
             return False
