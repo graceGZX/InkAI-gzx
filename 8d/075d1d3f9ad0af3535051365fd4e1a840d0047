@@ -1,0 +1,22 @@
+frontend/index.html
+  s_3ff4eb800b3dcf::t_c9d99854c458d2 330-355
+frontend/app.js
+  s_3ff4eb800b3dcf::t_596127e6e409af 7996-8128
+  s_3ff4eb800b3dcf::t_e10f23a13422be 795-804
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "8d075d1d3f9ad0af3535051365fd4e1a840d0047",
+  "prompts": {},
+  "sessions": {
+    "s_3ff4eb800b3dcf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72140990-acbb-4c1e-a702-b0e4ce456497",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
