@@ -1528,10 +1528,15 @@ def improve_dialogue(novel_id, chapter_number):
         # 构建 system prompt
         user_turns = sum(1 for m in messages if m.get("role") == "user")
 
+        last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         if user_turns == 0:
             stage_hint = "这是第 1 轮。用户还没说具体需求，请问他「想优化这章的哪个方面」，给 4-5 个具体选项。"
         else:
-            stage_hint = f"这是第 {user_turns + 1} 轮。你需要自己判断：如果对用户的需求还有不清楚的地方，继续追问一个具体细节（clarifying）；如果所有方面都问清楚了，给出确认总结（confirming）。不要着急确认，确保需求完全明确再说。"
+            stage_hint = (
+                f"用户刚才说：「{last_user[:100]}」。"
+                f"这是第 {user_turns + 1} 轮。先用一句话直接呼应他刚才说的（引用他的具体词），"
+                "再追问一个更深的细节。如果已能回答「改什么/怎么改/改多少」三个问题，给出确认总结（confirming）；否则继续追问。"
+            )
 
         system_prompt = f"""你是网文编辑助手，正在和作者对话，帮他明确对第{chapter_number}章「{chapter_title}」的优化需求。
 
@@ -1553,6 +1558,10 @@ def improve_dialogue(novel_id, chapter_number):
 
 返回纯 JSON：
 {{"question":"...","options":["...","..."],"stage":"clarifying","confirmed_requirements":null,"suggested_scope":null}}
+
+每轮回复格式（严格遵守）：
+1. question 开头必须是一句呼应用户刚才内容的话，要引用他说的具体词
+2. options 的每个选项必须基于用户刚才回答，包含章节中的具体内容，不能是"优化文笔"这类通用选项
 """
         # 构建消息列表
         llm_messages = [{"role": "system", "content": system_prompt}]
@@ -2305,10 +2314,15 @@ def rules_dialogue(novel_id):
             except:
                 pass
 
+        last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         if user_turns == 0:
-            stage_hint = "这是第 1 轮。用户刚开始，先问他最想解决什么问题，给 4-5 个具体选项引导他开口。"
+            stage_hint = "这是第 1 轮。用户刚开始，先问他最想解决什么写作问题，给 4-5 个具体选项引导他开口。"
         else:
-            stage_hint = f"这是第 {user_turns + 1} 轮。仔细读用户上一轮说了什么，接着他的话往下聊，不要重复问一样的问题。如果他说得很具体了，帮他提炼成一条规则并确认（stage=confirming）；如果还需要追问，继续深入但一定要和上一轮的内容衔接。不要着急确认，确保理解透用户意图。"
+            stage_hint = (
+                f"用户刚才说：「{last_user[:100]}」。"
+                f"这是第 {user_turns + 1} 轮。先用一句话承接这句话（引用他的词），再追问一个更具体的细节或请他举例。"
+                "聊清楚 2-3 个具体点后再给出确认总结（confirming），不要着急。"
+            )
 
         system_prompt = f"""你是一位经验丰富的网文写作教练，正在和作者一对一面聊，帮他建立小说的写作规则。
 
@@ -2333,7 +2347,11 @@ def rules_dialogue(novel_id):
 - stage 可以是 clarifying（还在了解需求）/ confirming（提炼出规则，让用户确认）/ done（规则已确认保存）
 - 当 stage=confirming 时，把提炼出的规则放在 rule_update 字段：
   rule_update: {{"category":"writing_style|character|plot|dialogue|pacing|worldbuilding|general","title":"简短标题","content":"具体规则内容","priority":"must|should|may"}}
-- 当 stage=done 时，question 中告诉用户规则已保存"""
+- 当 stage=done 时，question 中告诉用户规则已保存
+
+每轮回复格式（严格遵守）：
+1. question 开头必须是一句承接用户刚才内容的话，要引用他说的具体词
+2. options 的每个选项必须是从用户刚才回答延伸出的具体建议，不能是泛泛的分类标签"""
 
         llm_messages = [{"role": "system", "content": system_prompt}]
         for m in messages:
