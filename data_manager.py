@@ -1175,7 +1175,7 @@ class DataManager:
         return config.DATA_DIR
 
     def _git_commit(self, file_paths: List[str], message: str) -> bool:
-        """本地 git add + commit，静默执行，失败不抛异常"""
+        """本地 git add + commit + push，静默执行，失败不抛异常"""
         import subprocess
         repo = self._git_repo_root()
         try:
@@ -1189,6 +1189,7 @@ class DataManager:
             )
             if commit_result.returncode == 0:
                 print(f"Git 提交成功: {message}")
+                self._git_push(repo)
                 return True
             else:
                 if "nothing to commit" in commit_result.stdout or "nothing to commit" in commit_result.stderr:
@@ -1199,6 +1200,24 @@ class DataManager:
                     return False
         except Exception as e:
             print(f"Git 操作异常: {e}")
+            return False
+
+    def _git_push(self, repo: str) -> bool:
+        """推送到远程 origin，静默执行，失败不抛异常"""
+        import subprocess
+        try:
+            push_result = subprocess.run(
+                ["git", "-C", repo, "push", "origin"],
+                capture_output=True, text=True, timeout=60
+            )
+            if push_result.returncode == 0:
+                print(f"Git 推送成功")
+                return True
+            else:
+                print(f"Git 推送失败: {push_result.stderr.strip()}")
+                return False
+        except Exception as e:
+            print(f"Git 推送异常: {e}")
             return False
 
     def commit_chapter(self, novel_id: str, chapter_number: int, title: str = "") -> bool:

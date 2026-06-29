@@ -1845,7 +1845,12 @@ class InkAIWorkflowOptimized:
         # 添加续写章节内容数据（如果存在）
         if next_chapter_content:
             continuation_state["next_chapter_content"] = next_chapter_content
-        
+
+        # 添加当前故事弧数据（如果存在）
+        active_arc = self.data_manager.load_active_arc(novel_id)
+        if active_arc:
+            continuation_state["active_arc"] = active_arc
+
         return {
             "novel_id": self.context.novel_id,
             "is_continuation": True,

@@ -794,8 +794,9 @@ const ContinuationManager = {
             }
 
             // 检测故事弧待确认（仅针对 storyline_generation）
-            if (stepName === 'storyline_generation' && response && response.arc_pending && response.arc_draft) {
-                window.showArcConfirmModal(novelId, response.arc_draft, function() {
+            const arcData = response && response.data;
+            if (stepName === 'storyline_generation' && arcData && arcData.arc_pending && arcData.arc_draft) {
+                window.showArcConfirmModal(novelId, arcData.arc_draft, function() {
                     // 用户确认后自动重试故事线生成
                     ContinuationManager.executeContinuationStep('storyline_generation', novelId);
                 });
@@ -1356,6 +1357,9 @@ const displayContinuationWorkflow = (continuationData) => {
                             <i class="fas fa-play me-2"></i>执行此步骤
                         </button>
                         
+                        <!-- 活跃故事弧展示 -->
+                        ${step.key === 'storyline_generation' && continuationData?.continuation_state?.active_arc ? renderActiveArcPanel(continuationData.continuation_state.active_arc) : ''}
+
                         <!-- 优化选项 -->
                         ${step.key === 'storyline_generation' ? `
                             <div class="optimization-options mt-2">
@@ -2384,6 +2388,7 @@ const StepDetailsManager = {
             const response = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/continuation-status`);
             if (response.success && response.data.continuation_state) {
                 const storyline = response.data.continuation_state.next_chapter_storyline;
+                const activeArc = response.data.continuation_state?.active_arc || null;
                 if (storyline) {
                     // 获取质量评估数据
                     let qualityAssessment = null;
@@ -2397,6 +2402,7 @@ const StepDetailsManager = {
                     }
                     contentElement.innerHTML = `
                         <div class="step-detail-content">
+                            ${activeArc ? renderActiveArcPanel(activeArc) : ''}
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h6><i class="fas fa-route me-2"></i>续写故事线详情</h6>
                                 <div class="step-controls">
@@ -8000,6 +8006,37 @@ var _arcNovelId = null;        // 当前操作的 novelId
 var _arcConfirmCallback = null; // 确认后的回调（重试写章）
 
 // 渲染弧草案到 Modal
+// 渲染活跃故事弧的摘要面板（用于续写步骤和故事线详情展示）
+function renderActiveArcPanel(arc) {
+    if (!arc) return '';
+    var typeMap = { growth: '成长弧', conflict: '冲突弧', exploration: '探索弧', revelation: '揭露弧', standalone: '单章' };
+    var total = arc.planned_chapters || 0;
+    var remaining = arc.chapters_remaining || 0;
+    var done = total - remaining;
+    var pct = total > 0 ? Math.round(done / total * 100) : 0;
+    var roles = arc.chapter_roles || [];
+    // 当前章是第 done+1 个角色（0-indexed: done）
+    var currentRole = roles[done] || null;
+    var roleLabel = { arc_open: '开篇', arc_mid: '中段', arc_climax: '高潮', arc_close: '收尾' };
+    var currentRoleText = currentRole ? (roleLabel[currentRole.role] || currentRole.role) : '';
+    var currentMilestone = currentRole ? (currentRole.milestone || '') : '';
+
+    return '<div class="active-arc-panel mb-3 p-3" style="background:#f3f0ff;border-radius:8px;border-left:4px solid #6f42c1;">' +
+        '<div class="d-flex align-items-center justify-content-between mb-2">' +
+        '<span class="fw-bold" style="color:#6f42c1;"><i class="fas fa-layer-group me-2"></i>当前故事弧</span>' +
+        '<span class="badge" style="background:#6f42c1;">' + Utils.escapeHtml(typeMap[arc.arc_type] || arc.arc_type || '') + '</span>' +
+        '</div>' +
+        '<div class="mb-1"><strong>' + Utils.escapeHtml(arc.arc_name || '') + '</strong>' +
+        '<span class="text-muted ms-2 small">共 ' + total + ' 章，已写 ' + done + ' 章，剩余 ' + remaining + ' 章</span></div>' +
+        '<div class="progress mb-2" style="height:6px;"><div class="progress-bar" style="width:' + pct + '%;background:#6f42c1;"></div></div>' +
+        (currentMilestone ? '<div class="small" style="background:#ede9ff;border-radius:4px;padding:6px 8px;">' +
+            '<span class="text-muted me-1">本章里程碑</span>' +
+            (currentRoleText ? '<span class="badge bg-secondary me-1">' + Utils.escapeHtml(currentRoleText) + '</span>' : '') +
+            Utils.escapeHtml(currentMilestone) +
+        '</div>' : '') +
+    '</div>';
+}
+
 function _renderArcModal(arc) {
     var roles = arc.chapter_roles || [];
     var milestones = arc.character_milestones || {};
@@ -8013,7 +8050,7 @@ function _renderArcModal(arc) {
             '<td class="text-center">' + (i + 1) + '</td>' +
             '<td><span class="badge bg-secondary">' + roleLabel + '</span></td>' +
             '<td><span class="badge bg-info text-dark">' + endingLabel + '</span></td>' +
-            '<td><input class="form-control form-control-sm arc-milestone-input" data-idx="' + i + '" value="' + Utils.escapeHtml(r.milestone || '') + '"></td>' +
+            '<td><textarea class="form-control form-control-sm arc-milestone-input" data-idx="' + i + '" rows="2" style="resize:none;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">' + Utils.escapeHtml(r.milestone || '') + '</textarea></td>' +
             '</tr>';
     }).join('');
 
@@ -8041,9 +8078,13 @@ function _renderArcModal(arc) {
         '    <input class="form-control" id="arc-edit-chapters" type="number" min="2" max="10" value="' + (arc.planned_chapters || roles.length) + '"></div>' +
         '</div>' +
         '<h6 class="fw-bold mb-2">每章规划（可编辑里程碑）</h6>' +
-        '<table class="table table-sm table-bordered mb-3"><thead><tr>' +
-        '<th style="width:50px">章</th><th style="width:80px">定位</th><th style="width:90px">结尾</th><th>里程碑</th>' +
-        '</tr></thead><tbody>' + rolesHtml + '</tbody></table>' +
+        '<div style="max-height:300px;overflow-y:auto;border:1px solid #dee2e6;border-radius:4px;">' +
+        '<table class="table table-sm table-bordered mb-0"><thead><tr>' +
+        '<th style="width:50px;position:sticky;top:0;background:#fff;z-index:1;">章</th>' +
+        '<th style="width:80px;position:sticky;top:0;background:#fff;z-index:1;">定位</th>' +
+        '<th style="width:90px;position:sticky;top:0;background:#fff;z-index:1;">结尾</th>' +
+        '<th style="position:sticky;top:0;background:#fff;z-index:1;">里程碑</th>' +
+        '</tr></thead><tbody>' + rolesHtml + '</tbody></table></div>' +
         '<h6 class="fw-bold mb-2">角色里程碑</h6>' +
         mainMilestoneHtml + supportingHtml;
 }
