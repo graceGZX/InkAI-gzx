@@ -49,6 +49,39 @@ class ContinuationChapterWriter(BaseAgent):
             recent_chapters = knowledge_base.get("recent_chapters_summaries", [])
             vector_chapters = knowledge_base.get("vector_retrieved_chapters", [])
 
+            # 读取弧感知字段
+            arc_context = storyline.get("arc_context", {})
+            ending_type = storyline.get("ending_type", "")
+            character_milestones = storyline.get("character_milestones", {})
+
+            # 弧感知写作指令
+            arc_writing_instruction = ""
+            if arc_context.get("arc_name"):
+                arc_role = arc_context.get("arc_role", "")
+                arc_idx = arc_context.get("arc_chapter_index", 1)
+                arc_total = arc_context.get("arc_total_chapters", 1)
+                arc_writing_instruction = f"""
+            ## 故事弧定位（必须遵守）
+
+            当前弧：《{arc_context.get("arc_name", "")}》第 {arc_idx}/{arc_total} 章（{arc_role}）
+
+            """
+
+            ending_instruction = ""
+            ending_type_map = {
+                "cliffhanger": "【章末要求 - cliffhanger】必须在最紧张、最危险的时刻截断。不能解决当前冲突或危机。最后一段必须停在读者最想知道「然后呢」的瞬间，让读者强烈渴望翻到下一章。",
+                "hook":        "【章末要求 - hook】章末留下一个明确的疑问、反常细节或意外出现的人/事，引发读者强烈好奇，不需要紧张氛围，但必须留下悬念。",
+                "pause":       "【章末要求 - pause】章末让当前冲突暂时平息，节奏放缓。可用内心独白、环境描写或轻松对话收尾，给读者喘息空间。",
+                "resolution":  "【章末要求 - resolution】章末完整解决本弧的核心冲突，给读者情绪释放感。但在最后几句中，必须埋下一个新的伏笔或问题，为下一弧做铺垫。",
+            }
+            if ending_type in ending_type_map:
+                ending_instruction = ending_type_map[ending_type]
+
+            milestone_instruction = ""
+            main_milestone = character_milestones.get("main", {})
+            if main_milestone and main_milestone.get("has_milestone"):
+                milestone_instruction = f"【角色里程碑 - 必须在本章写出】主角本章将经历：{main_milestone.get('description', '')}（类型：{main_milestone.get('type', '')}），请将此里程碑作为本章核心事件之一，用充分的笔墨展现过程与情绪。"
+
             # 构建写作提示
             prompt = f"""
             请根据以下信息续写小说《{novel_info.get('title', '未知标题')}》的第{storyline.get('chapter_number', 1)}章。
@@ -103,10 +136,13 @@ class ContinuationChapterWriter(BaseAgent):
             4. 保持原文的写作风格和基调
             5. 设置适当的伏笔和悬念
             6. 语言生动，描写细腻
-            7. 小说正文字数必须大于3000字且在3000-5000字之间
+            7. 小说正文字数必须大于5000字，目标在5000-8000字之间，务必写满
             8. 确保情节逻辑自洽
             9. 用你最大的输出能力进行输出
-            
+            {arc_writing_instruction}
+            {ending_instruction}
+            {milestone_instruction}
+
             请返回JSON格式：
             {{
                 "title": "章节标题",
@@ -221,10 +257,10 @@ class ContinuationChapterWriter(BaseAgent):
         has_action = any(word in content for word in ['走', '跑', '看', '听', '说', '想', '做'])
         
         quality_score = 0
-        if 2000 <= word_count <= 3000:
+        if 5000 <= word_count <= 8000:
             quality_score += 30
-        elif 1500 <= word_count <= 4000:
-            quality_score += 20
+        elif 4000 <= word_count < 5000:
+            quality_score += 15
         
         if 10 <= avg_sentence_length <= 30:
             quality_score += 20
