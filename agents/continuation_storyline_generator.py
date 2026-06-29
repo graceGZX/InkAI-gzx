@@ -47,9 +47,35 @@ class ContinuationStorylineGenerator(BaseAgent):
             world_setting = knowledge_base.get("world_setting", "")
             story_tone = knowledge_base.get("story_tone", "")
             tags = knowledge_base.get("tags", {})
+            active_arc = knowledge_base.get("active_arc")
+            current_arc_role = knowledge_base.get("current_arc_role", {})
 
             # 确定下一章号
             next_chapter_number = len(chapters) + 1
+
+            # 构建弧上下文段落
+            arc_context_section = ""
+            if active_arc and current_arc_role:
+                arc_idx = active_arc["planned_chapters"] - active_arc["chapters_remaining"] + 1
+                arc_context_section = f"""
+            ## 当前故事弧（重要，必须严格遵守）
+
+            弧名称：{active_arc.get("arc_name", "")}（{active_arc.get("arc_type", "")}）
+            本章是该弧的第 {arc_idx}/{active_arc.get("planned_chapters", 1)} 章
+            本章定位：{current_arc_role.get("role", "arc_mid")}
+            本章里程碑：{current_arc_role.get("milestone", "")}
+            本章结尾类型：{current_arc_role.get("ending_type", "hook")}（必须严格执行）
+
+            结尾类型说明：
+            - cliffhanger：在最紧张时刻截断，绝对不解决冲突，让读者强烈渴望翻下一章
+            - hook：留下一个让读者好奇的问题或反常细节
+            - pause：冲突暂时平息，气氛舒缓，有内心独白或环境描写
+            - resolution：完整解决本弧核心冲突，情绪释放，但需埋下新伏笔
+
+            角色里程碑计划（仅在对应章写出）：
+            主角：第{active_arc.get("character_milestones", {}).get("main", {}).get("chapter_offset", 0)}章 — {active_arc.get("character_milestones", {}).get("main", {}).get("description", "无")}
+            配角：{", ".join(f"{s.get('name')}第{s.get('chapter_offset')}章-{s.get('description','')}" for s in active_arc.get("character_milestones", {}).get("supporting", []))}
+            """
 
             # 构建生成提示
             prompt = f"""
@@ -86,6 +112,7 @@ class ContinuationStorylineGenerator(BaseAgent):
 
             11. 用户续写需求：{user_requirements if user_requirements else "无特殊要求"}
 
+            {arc_context_section}
             请生成第{next_chapter_number}章的详细故事线，要求：
             1. scene_setting 中的 time/location 必须与上一章结尾的场景/时间自然衔接，不得跳转
             2. 推进主线故事发展
@@ -167,7 +194,21 @@ class ContinuationStorylineGenerator(BaseAgent):
                 }},
                 "chapter_ending": "章节结尾描述",
                 "next_chapter_hint": "下章预告",
-                "writing_notes": "写作注意事项"
+                "writing_notes": "写作注意事项",
+                "arc_context": {{
+                    "arc_id": "",
+                    "arc_name": "",
+                    "arc_type": "",
+                    "arc_chapter_index": 1,
+                    "arc_total_chapters": 1,
+                    "arc_role": "arc_open",
+                    "chapters_remaining": 1
+                }},
+                "character_milestones": {{
+                    "main": {{"has_milestone": false, "type": null, "description": null}},
+                    "supporting": []
+                }},
+                "ending_type": "hook"
             }}
             """
             
@@ -227,7 +268,13 @@ class ContinuationStorylineGenerator(BaseAgent):
                 },
                 "chapter_ending": "待补充",
                 "next_chapter_hint": "待补充",
-                "writing_notes": "待补充"
+                "writing_notes": "待补充",
+                "arc_context": {},
+                "character_milestones": {
+                    "main": {"has_milestone": False, "type": None, "description": None},
+                    "supporting": []
+                },
+                "ending_type": "hook",
             }
             
             # 补充缺失字段
