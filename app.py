@@ -15,6 +15,7 @@ import config
 
 # 导入智能体（避免重复导入）
 from agents import QualityAssessorAgent, CharacterCreatorAgent
+from agents.continuation_arc_planner import ContinuationArcPlanner
 from quick_continuation_executor import get_executor, QuickContinuationProgress
 
 # 轻量 agent 辅助类（绕过 BaseAgent 的 abstractmethod 限制，直接调 LLM）
@@ -1650,42 +1651,44 @@ def improve_proposals(novel_id, chapter_number):
         tags = metadata.get("selected_tags", {}) if metadata else {}
         genre = tags.get("genre", "玄幻")
 
-        system_prompt = f"""你是一个资深网文编辑，正在帮作者规划对第{chapter_number}章《{chapter_title}》的优化方案。
+        system_prompt = "你是一个资深网文编辑，擅长分析章节内容并给出具体、可操作的优化方案。只返回 JSON，不要其他内容。"
 
+        user_prompt = f"""请为第{chapter_number}章《{chapter_title}》生成 3 个差异化优化方案。
+
+【基本信息】
 题材：{genre}
 章节摘要：{chapter_summary[:200]}
 用户需求：{requirements}
 修改范围：{scope}
 
-章节内容（前2000字）：
----
+【章节内容（前2000字）】
 {content_sample}
----
 
-请根据用户需求和章节现状，生成 2-3 个差异化的优化方案。每个方案要有不同的侧重点和优化思路。
-
-返回 JSON（只返回 JSON，不要其他内容）：
+【输出格式】只返回如下 JSON，不要额外说明：
 {{
   "plans": [
     {{
       "index": 0,
       "title": "方案名称（6字以内）",
-      "description": "方案概述（2-3句，说明这个方案的核心思路和优化方向）",
-      "expected_result": "预期效果（用一两句话说明改完后章节会变成什么样）",
-      "key_changes": ["具体改动点1", "具体改动点2", "具体改动点3"]
+      "description": "方案概述（2-3句，说明核心思路和优化方向，必须结合章节实际内容）",
+      "expected_result": "预期效果（改完后章节会变成什么样，举例说明）",
+      "key_changes": ["具体改动点1（引用原文段落或场景）", "具体改动点2", "具体改动点3"]
     }}
   ]
 }}
 
-要求：
-- 必须生成 3 个差异化方案，缺一不可。只生成 1-2 个视为不合格
-- 三个方案必须从不同角度切入（如：删减精简 / 结构调整 / 场景合并），不能只是措辞不同
-- 每个 key_changes 列 2-4 条具体可操作的改动
-- 方案要结合章节实际内容，引用具体段落/场景
-- 语言简洁，不用套话"""
+【要求】
+- 必须生成恰好 3 个方案，缺一不可
+- 三个方案必须从不同角度切入（如：局部补写 / 结构调整 / 重写核心场景），不能仅措辞不同
+- 每条 key_changes 必须具体可操作，引用原文中的实际段落或人物
+- 绝对禁止泛化套话（如"定位目标段落""保持上下文衔接"等无意义描述）"""
 
         agent = _LLMAgent("优化提案")
-        response = agent.call_llm([{"role": "system", "content": system_prompt}], temperature=0.7, max_tokens=1200)
+        response = agent.call_llm(
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            temperature=0.7,
+            max_tokens=2000
+        )
 
         # 使用 BaseAgent 的成熟 JSON 解析
         result = agent.parse_json_response(response)
@@ -1693,31 +1696,14 @@ def improve_proposals(novel_id, chapter_number):
             print(f"[Proposals] JSON 解析失败或缺少 plans，原始响应: {response[:500]}")
 
         if not result or not result.get("plans"):
-            # Fallback: 基于需求关键词生成有意义的方案摘要
-            req_brief = requirements[:80]
-            result = {"plans": [{
-                "index": 0,
-                "title": "精准修改",
-                "description": f"针对您提出的需求，定位章节中相关段落进行精准增删改，不动整体结构",
-                "expected_result": "需求点得到补充/修正，其他部分保持原样",
-                "key_changes": ["定位目标段落并修改", "新增必要的说明性文字", "保持上下文衔接流畅"]
-            }]}
+            # AI 调用失败时返回错误，让前端显示重试入口，不用套话模板
+            return jsonify({"success": False, "error": "AI 生成方案失败，请重试"}), 500
 
-        # 确保至少有 2 个方案（如果 AI 只返回了 1 个，补充一个差异化方案）
+        # 确保方案索引正确
         plans = result.get("plans", [])
-        if len(plans) < 2:
-            scope_labels = {"minor": "局部微调措辞和补充", "medium": "调整相关段落结构", "major": "重写大段内容"}
-            alt_approach = "major" if scope == "minor" else "minor"
-            plans.append({
-                "index": len(plans),
-                "title": "换个思路",
-                "description": f"采用不同的修改策略：从{scope_labels.get(alt_approach, '另一种方式')}切入，用另一种写作手法实现同样目的",
-                "expected_result": f"相同需求，不同的表达方式，给读者不同的阅读体验",
-                "key_changes": ["调整叙事节奏", "改变信息透露方式", "重新组织关键场景"]
-            })
-            for i, p in enumerate(plans):
-                p["index"] = i
-            result["plans"] = plans
+        for i, p in enumerate(plans):
+            p["index"] = i
+        result["plans"] = plans
 
         return jsonify({"success": True, "data": result})
 
@@ -2387,6 +2373,51 @@ def rules_dialogue(novel_id):
         import traceback
         traceback.print_exc()
         return jsonify({"success": False, "error": f"对话失败: {str(e)}"}), 500
+
+
+@app.route('/api/novels/<novel_id>/arc/plan', methods=['POST'])
+def arc_plan(novel_id):
+    """触发弧规划，返回 AI 生成的弧草案（不保存，等待用户确认）"""
+    try:
+        ensure_context_loaded(novel_id)
+        if not workflow.context or workflow.context.novel_id != novel_id:
+            return jsonify({"success": False, "error": "请先开始续写流程"}), 400
+
+        kb = workflow.context.continuation_data.get("knowledge_base", {})
+        chapters = workflow.data_manager.get_novel_chapters(novel_id)
+        kb["current_chapter_number"] = len(chapters) + 1
+
+        planner = ContinuationArcPlanner()
+        result = planner.process({"knowledge_base": kb})
+
+        if not result.get("success"):
+            return jsonify({"success": False, "error": result.get("error", "弧规划失败")}), 500
+
+        return jsonify({"success": True, "data": result["arc"]})
+    except Exception as e:
+        print(f"弧规划错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/novels/<novel_id>/arc/confirm', methods=['POST'])
+def arc_confirm(novel_id):
+    """保存用户确认（或修改）后的弧计划"""
+    try:
+        data = request.get_json() or {}
+        arc = data.get("arc")
+        if not arc:
+            return jsonify({"success": False, "error": "缺少 arc 字段"}), 400
+
+        success = workflow.data_manager.save_active_arc(novel_id, arc)
+        if not success:
+            return jsonify({"success": False, "error": "保存弧计划失败"}), 500
+
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"弧确认错误: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == '__main__':
