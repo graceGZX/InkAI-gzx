@@ -1,0 +1,29 @@
+frontend/app.js
+  s_afaddec0052969::t_bd36ca2248a709 8081-8087
+  s_afaddec0052969::t_604256387115f6 797-799
+  s_afaddec0052969::t_db95967fb1de46 8009-8039
+  s_afaddec0052969::t_c0b487dab468ce 1360-1362
+  s_afaddec0052969::t_b63245bb4d9b7e 2391,2405
+  s_afaddec0052969::t_816e58d2365916 8053
+inkai_workflow_optimized.py
+  s_afaddec0052969::t_e74a94a5392b50 1848-1853
+data_manager.py
+  s_afaddec0052969::t_577af27990727b 1178,1192,1205-1220
+  s_afaddec0052969::t_596d583c121ad4 1221-1222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "ce76785aeadf375e8d261a53fd0f1b61bf9a945c",
+  "prompts": {},
+  "sessions": {
+    "s_afaddec0052969": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7632435f-00ca-4327-8d73-86ca389ba130",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
