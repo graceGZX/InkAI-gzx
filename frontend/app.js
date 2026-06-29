@@ -3677,7 +3677,13 @@ window.aiOptimizeChapter = async (novelId, chapterNumber) => {
                                         </div>
                                     </div>
                                     <div id="dialogue-container" class="dialogue-container mb-2" style="display:none;">
-                                        <!-- 对话消息动态插入 -->
+                                        <div id="dialogue-messages" style="max-height:320px;overflow-y:auto;padding-bottom:4px;"></div>
+                                        <div id="dialogue-input-area" class="mt-2">
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" class="form-control" id="dialogue-custom-input" placeholder="直接输入你的想法...">
+                                                <button class="btn btn-outline-secondary" onclick="submitDialogueCustom()"><i class="fas fa-paper-plane"></i></button>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div id="manual-input-area">
                                         <textarea class="form-control" id="optimize-requirements" rows="3" placeholder="例如：加强主角心理描写，增加冲突张力，让对话更自然..."></textarea>
@@ -3926,7 +3932,9 @@ window.startRequirementDialogue = async (novelId, chapterNumber) => {
     state.messages = [];
     state.round = 0;
     state.done = false;
-    container.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>AI 正在准备提问...</div>';
+    container.style.display = 'block';
+    var msgEl = document.getElementById('dialogue-messages');
+    if (msgEl) msgEl.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>AI 正在准备提问...</div>';
 
     // 获取章节信息
     try {
@@ -3962,7 +3970,8 @@ window.startRequirementDialogue = async (novelId, chapterNumber) => {
         }
 
         var data = resp.data;
-        state.messages.push({ role: 'assistant', content: data.question, options: data.options || [] });
+        state.messages.push({ role: 'user', content: '我想优化这一章' });
+        state.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage });
         state.round = 1;
         _saveDialogueContext(novelId, chapterNumber, chapterTitle, chapterSummary, tags);
         renderDialogue(data, novelId, chapterNumber);
@@ -4039,82 +4048,58 @@ var startRequirementDialogueWithState = async function(novelId, chNum) {
 
 // 渲染对话
 var renderDialogue = function(data, novelId, chapterNumber) {
-    var container = document.getElementById('dialogue-container');
+    var messagesEl = document.getElementById('dialogue-messages');
+    if (!messagesEl) return;
     var state = _getDialogueState(novelId, chapterNumber);
-
+    var stage = data.stage || 'clarifying';
     var html = '';
 
-    // 渲染历史消息（跳过最后一条 assistant 消息，因为下面会作为"当前问题"渲染）
-    var renderCount = state.messages.length;
-    if (renderCount > 0 && state.messages[renderCount - 1].role === 'assistant') {
-        renderCount--; // 最后一条 assistant 消息留给下方 data.question 渲染
-    }
-    for (var i = 0; i < renderCount; i++) {
-        var msg = state.messages[i];
+    state.messages.forEach(function(msg, idx) {
+        var isLastAssistant = msg.role === 'assistant' && idx === state.messages.length - 1;
         if (msg.role === 'assistant') {
-            html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(msg.content) + '</div></div>';
+            html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(msg.content) + '</div>';
+            if (isLastAssistant && stage !== 'done') {
+                var opts = data.options || msg.options || [];
+                if (opts.length > 0) {
+                    html += '<div class="chat-quick-replies">';
+                    opts.forEach(function(opt, optIdx) {
+                        if (stage === 'confirming') {
+                            var cls = optIdx === 0 ? 'chat-reply-btn confirm' : 'chat-reply-btn secondary';
+                            html += '<span class="' + cls + '" onclick="confirmDialogueOption(' + optIdx + ')">' + Utils.escapeHtml(opt) + '</span>';
+                        } else {
+                            html += '<span class="chat-reply-btn" onclick="selectDialogueOption(\'' + opt.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')">' + Utils.escapeHtml(opt) + '</span>';
+                        }
+                    });
+                    html += '</div>';
+                }
+            }
+            html += '</div>';
         } else {
             html += '<div class="dialogue-msg dialogue-user"><div class="dialogue-bubble user-bubble">' + Utils.escapeHtml(msg.content) + '</div></div>';
         }
-    }
+    });
 
-    // 当前 AI 问题 + 选项
-    if (data.stage === 'confirming') {
-        // 确认阶段
-        html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(data.question) + '</div>';
-        html += '<div class="chat-quick-replies">';
-        (data.options || []).forEach(function(opt, idx) {
-            var cls = idx === 0 ? 'chat-reply-btn confirm' : 'chat-reply-btn secondary';
-            html += '<span class="' + cls + '" onclick="confirmDialogueOption(' + idx + ')">' + Utils.escapeHtml(opt) + '</span>';
-        });
-        html += '<div class="dialogue-custom-input mt-2" id="dialogue-custom-row">';
-        html += '<div class="input-group input-group-sm"><input type="text" class="form-control" id="dialogue-custom-input" placeholder="补充或修改需求...">';
-        html += '<button class="btn btn-outline-secondary" onclick="submitDialogueCustom()"><i class="fas fa-paper-plane"></i></button></div>';
-        html += '</div>';
-        html += '</div></div>';
-    } else if (data.stage === 'done') {
-        // 对话完成 → 自动获取优化方案提案
+    if (stage === 'done') {
         var reqs = data.confirmed_requirements || '';
         var scope = data.suggested_scope || 'minor';
-        html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(data.question || '已确认需求') + '</div></div>';
         html += '<div class="alert alert-success py-2 mt-2"><i class="fas fa-check-circle me-1"></i>需求已确认！AI 正在生成优化方案供您选择...</div>';
-        container.innerHTML = html;
-
-        // 保存确认结果到状态
+        messagesEl.innerHTML = html;
         state.confirmedRequirements = reqs;
         state.suggestedScope = scope;
         state.done = true;
-
-        // 填入 textarea 和 scope（备用）
         document.getElementById('optimize-requirements').value = reqs;
         var scopeRadio = document.querySelector('input[name="optimize-scope"][value="' + scope + '"]');
         if (scopeRadio) scopeRadio.checked = true;
-
-        // 自动获取优化方案
         _fetchProposals(novelId, chapterNumber, reqs, scope);
         return;
-    } else {
-        // clarifying / opening
-        html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(data.question) + '</div>';
-        html += '<div class="chat-quick-replies">';
-        (data.options || []).forEach(function(opt) {
-            // "其他/自定义"选项不调用后端，改为聚焦输入框
-            if (opt.indexOf('其他') === 0 || opt.indexOf('自定义') >= 0 || opt.indexOf('手动输入') >= 0) {
-                html += '<span class="chat-reply-btn secondary" onclick="document.getElementById(\'dialogue-custom-input\').focus()">' + Utils.escapeHtml(opt) + '</span>';
-            } else {
-                html += '<span class="chat-reply-btn" onclick="selectDialogueOption(\'' + Utils.escapeHtml(opt).replace(/'/g, "\\'") + '\')">' + Utils.escapeHtml(opt) + '</span>';
-            }
-        });
-        html += '<div class="dialogue-custom-input mt-2" id="dialogue-custom-row">';
-        html += '<div class="input-group input-group-sm"><input type="text" class="form-control" id="dialogue-custom-input" placeholder="或直接输入你的想法...">';
-        html += '<button class="btn btn-outline-secondary" onclick="submitDialogueCustom()"><i class="fas fa-paper-plane"></i></button></div>';
-        html += '</div>';
-        html += '</div></div>';
     }
 
-    container.innerHTML = html;
+    messagesEl.innerHTML = html;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 
-    container.scrollIntoView({ behavior: 'smooth' });
+    // 聚焦输入框
+    var input = document.getElementById('dialogue-custom-input');
+    if (input) input.focus();
 };
 
 // 获取当前对话的 novelId & chapterNumber（从 state key 反推）
@@ -4128,19 +4113,24 @@ var _getActiveDialogueNovelInfo = function() {
 
 // 用户选择选项
 window.selectDialogueOption = async (option) => {
-    var container = document.getElementById('dialogue-container');
-    container.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>AI 思考中...</div>';
-
     var info = _getActiveDialogueNovelInfo();
     var state = _getDialogueState(info.novelId, info.chapterNumber);
     state.messages.push({ role: 'user', content: option });
     state.round++;
 
+    // 在消息区追加用户气泡 + 等待气泡（不替换整个容器）
+    var messagesEl = document.getElementById('dialogue-messages');
+    var typingId = 'typing-' + Date.now();
+    messagesEl.innerHTML +=
+        '<div class="dialogue-msg dialogue-user"><div class="dialogue-bubble user-bubble">' + Utils.escapeHtml(option) + '</div></div>' +
+        '<div id="' + typingId + '" class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble"><span class="spinner-border spinner-border-sm me-1"></span>思考中...</div></div>';
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
     try {
         var resp = await Utils.apiRequest('/novels/' + info.novelId + '/chapters/' + info.chapterNumber + '/improve/dialogue', {
             method: 'POST',
             body: JSON.stringify({
-                messages: state.messages,
+                messages: state.messages.map(function(m) { return { role: m.role, content: m.content }; }),
                 chapter_summary: state.chapterSummary,
                 chapter_title: state.chapterTitle,
                 tags: state.tags
@@ -4150,19 +4140,28 @@ window.selectDialogueOption = async (option) => {
         if (!resp.success) throw new Error(resp.error || '对话失败');
 
         var data = resp.data;
-        state.messages.push({ role: 'assistant', content: data.question, options: data.options || [] });
-
+        var typingBubble = document.getElementById(typingId);
+        if (typingBubble) typingBubble.remove();
+        state.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage });
         renderDialogue(data, info.novelId, info.chapterNumber);
 
     } catch (e) {
-        container.innerHTML = '<div class="alert alert-warning py-2">对话出错: ' + e.message + '</div>';
+        var tb = document.getElementById(typingId);
+        if (tb) tb.remove();
+        var messagesEl2 = document.getElementById('dialogue-messages');
+        if (messagesEl2) messagesEl2.innerHTML += '<div class="alert alert-warning py-2 mt-1">对话出错: ' + Utils.escapeHtml(e.message) + '</div>';
     }
 };
 
 // 确认阶段的选择
 window.confirmDialogueOption = async (idx) => {
     var container = document.getElementById('dialogue-container');
-    container.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>处理中...</div>';
+    var messagesEl = document.getElementById('dialogue-messages');
+    var typingId2 = 'typing-confirm-' + Date.now();
+    if (messagesEl) {
+        messagesEl.innerHTML += '<div id="' + typingId2 + '" class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble"><span class="spinner-border spinner-border-sm me-1"></span>处理中...</div></div>';
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
 
     var info = _getActiveDialogueNovelInfo();
     var state = _getDialogueState(info.novelId, info.chapterNumber);
@@ -4181,6 +4180,7 @@ window.confirmDialogueOption = async (idx) => {
                 })
             });
             if (resp.success && resp.data.stage === 'done') {
+                var tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
                 renderDialogue(resp.data, info.novelId, info.chapterNumber);
             } else {
                 var reqText = state.messages.filter(function(m) { return m.role === 'user'; }).map(function(m) { return m.content; }).join('；');
@@ -4191,6 +4191,7 @@ window.confirmDialogueOption = async (idx) => {
                     suggested_scope: 'minor',
                     options: []
                 };
+                var tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
                 renderDialogue(doneData, info.novelId, info.chapterNumber);
             }
         } catch (e) {
@@ -4198,7 +4199,7 @@ window.confirmDialogueOption = async (idx) => {
         }
     } else {
         // 用户点"重新描述需求"或"还有补充" → 聚焦输入框让用户打字，不发后端
-        container.innerHTML = ''; // 恢复之前的对话内容
+        var tb2 = document.getElementById(typingId2); if (tb2) tb2.remove();
         renderDialogue({
             stage: 'clarifying',
             question: '请输入您的补充或修改意见：',
