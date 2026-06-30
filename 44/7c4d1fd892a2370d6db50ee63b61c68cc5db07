@@ -1,0 +1,35 @@
+agents/chapter_writer.py
+  s_0385698b3bf79e::t_38d46a64518e42 10-18,37-45,49,86,88,108-121,129,140,142,261
+agents/continuation_chapter_writer.py
+  s_0385698b3bf79e::t_17c7f58dd7ec57 10-18,38-46,52,158,160,183-197,236,267,281,283
+core/chapter_length.py
+  s_0385698b3bf79e::t_8764e737ded6c3 1-25
+tests/test_chapter_length.py
+  s_0385698b3bf79e::t_eb1c3660c965b6 1-115
+inkai_workflow_optimized.py
+  s_fda3bcd798bdeb::t_b87d1afd1ea0a6 65-70,584-586,1418-1426,1444,1493-1500
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "447c4d1fd892a2370d6db50ee63b61c68cc5db07",
+  "prompts": {},
+  "sessions": {
+    "s_0385698b3bf79e": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "toolu_bdrk_0172gYpmvGLVKucv3xe7zXbk",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    },
+    "s_fda3bcd798bdeb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f166a-0bdc-7d81-9afb-d46a89471c04",
+        "model": "unknown"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
