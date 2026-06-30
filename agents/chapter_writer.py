@@ -6,6 +6,7 @@
 from base_agent import BaseAgent
 from typing import Dict, List, Any
 import config
+from core.chapter_content import extract_chapter_text
 
 
 class ChapterWriterAgent(BaseAgent):
@@ -65,7 +66,7 @@ class ChapterWriterAgent(BaseAgent):
         4. 设置适当的伏笔和悬念
         5. 语言生动，描写细腻
         6. 小说正文字数必须大于3000字且在3000-5000字之间
-        7. 小说的第一章是开篇，小说情节跟内容需要足够吸引读者
+        7. 严格完成本章的黄金开篇任务，并与上一章自然衔接
         8. 用你最大的输出能力进行输出
 
         
@@ -141,6 +142,9 @@ class ChapterWriterAgent(BaseAgent):
         场景设定: {chapter_info.get('scene_setting', {})}
         情节要点: {chapter_info.get('plot_points', [])}
         章节结尾: {chapter_info.get('chapter_ending', '未知')}
+        章次: 第{chapter_info.get('chapter_number', 1)}章
+        黄金开篇任务: {chapter_info.get('golden_requirements', '')}
+        前情承接: {chapter_info.get('previous_chapter_context', '')}
         """
     
     def _format_character_info(self, character: Dict[str, Any]) -> str:
@@ -175,11 +179,19 @@ class ChapterWriterAgent(BaseAgent):
     
     def _format_storyline_info(self, storyline: Dict[str, Any]) -> str:
         """格式化故事线信息"""
+        overall = storyline.get("overall_storyline", storyline)
+        outline = overall.get("overall_outline", {})
+        volumes = overall.get("volumes", [])
+        first_volume = volumes[0] if volumes else {}
+        act1 = overall.get("act1", {})
         return f"""
-        世界观: {storyline.get('world_setting', '未知')}
-        主角目标: {storyline.get('main_goal', '未知')}
-        核心冲突: {storyline.get('conflict', '未知')}
-        故事基调: {storyline.get('tone', '未知')}
+        世界观: {overall.get('world_setting', '未知')}
+        主角目标: {overall.get('main_goal', '未知')}
+        核心冲突: {overall.get('core_conflict', overall.get('conflict', '未知'))}
+        全书主线: {outline.get('summary', '未知')}
+        第一卷走向: {first_volume.get('synopsis', '未知')}
+        第一幕关键事件: {act1.get('key_events', [])}
+        故事基调: {overall.get('tone', '未知')}
         """
     
     def _format_tags(self, tags: Dict[str, List[str]]) -> str:
@@ -197,6 +209,8 @@ class ChapterWriterAgent(BaseAgent):
     
     def _validate_chapter_content(self, content: Dict[str, Any]) -> Dict[str, Any]:
         """验证章节内容"""
+        if "content" in content:
+            content["content"] = extract_chapter_text(content["content"])
         required_fields = ["title", "content", "summary"]
         
         for field in required_fields:

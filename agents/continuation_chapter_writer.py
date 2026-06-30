@@ -6,6 +6,7 @@
 from base_agent import BaseAgent
 from typing import Dict, List, Any, Optional
 import config
+from core.chapter_content import extract_chapter_text
 
 
 class ContinuationChapterWriter(BaseAgent):
@@ -176,6 +177,8 @@ class ContinuationChapterWriter(BaseAgent):
     
     def _validate_chapter_content(self, content: Dict[str, Any], storyline: Dict[str, Any]) -> Dict[str, Any]:
         """验证章节内容"""
+        if "content" in content:
+            content["content"] = extract_chapter_text(content["content"])
         # 只补充真正缺失的字段，不覆盖已有的有效内容
         required_fields = {
             "title": storyline.get("chapter_title", f"第{storyline.get('chapter_number', 1)}章"),

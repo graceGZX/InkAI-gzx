@@ -61,6 +61,12 @@ from optimization.long_term_consistency_system import LongTermConsistencySystem
 from data_manager import DataManager
 from workflow_context import WorkflowContext
 import config
+from core.chapter_content import extract_chapter_text
+from core.golden_opening import (
+    GOLDEN_OPENING_CHAPTERS,
+    golden_chapter_requirements,
+    is_golden_opening_complete,
+)
 
 
 class InkAIWorkflowOptimized:
@@ -501,8 +507,8 @@ class InkAIWorkflowOptimized:
         }
     
     def write_first_chapter(self) -> Dict[str, Any]:
-        """写作第一章"""
-        print("开始写作第一章...")
+        """依次写作新书的黄金前三章。"""
+        print("开始写作黄金前三章...")
         
         if not self.context:
             return {"error": "请先创建新小说项目"}
@@ -517,7 +523,18 @@ class InkAIWorkflowOptimized:
             else:
                 return {"error": "未找到故事线数据，请先生成故事线"}
         
-        # 获取第一章信息
+        saved_chapters = self.data_manager.get_novel_chapters(self.context.novel_id)
+        if is_golden_opening_complete(len(saved_chapters)):
+            self.context.set_current_step("chapter_completed")
+            return {
+                "status": "success",
+                "message": "黄金前三章已经完成",
+                "next_step": "chapter_completed",
+            }
+
+        chapter_number = len(saved_chapters) + 1
+
+        # 第一章使用故事线开篇模块，第二、三章承接上一章和总故事线。
         first_module = self.context.storyline.get("first_module", {})
         if not first_module:
             # 尝试从文件直接加载storyline数据
@@ -533,9 +550,28 @@ class InkAIWorkflowOptimized:
             else:
                 return {"error": "未找到第一章信息，请检查故事线数据完整性"}
         
+        chapter_info = dict(first_module) if chapter_number == 1 else {
+            "chapter_title": f"第{chapter_number}章（请根据正文拟定标题）",
+            "scene_setting": "紧接上一章的时间、地点和冲突，不得重新开场",
+            "plot_points": [golden_chapter_requirements(chapter_number)],
+            "chapter_ending": "完成本章兑现后，以升级后的冲突或目标形成强钩子",
+        }
+        chapter_info["chapter_number"] = chapter_number
+        chapter_info["golden_requirements"] = golden_chapter_requirements(chapter_number)
+        if saved_chapters:
+            previous = sorted(saved_chapters, key=lambda chapter: chapter.get("chapter_number", 0))[-1]
+            previous_content = extract_chapter_text(previous.get("content", ""))
+            chapter_info["previous_chapter_context"] = (
+                f"上一章：{previous.get('title', '')}\n"
+                f"概要：{previous.get('summary', '')}\n"
+                f"结尾正文：{previous_content[-1500:]}"
+            )
+        else:
+            chapter_info["previous_chapter_context"] = "无（本章是全书开篇）"
+
         # 使用统一的输入数据生成
         input_data = self.context.get_agent_input_data("chapter_writer", {
-            "chapter_info": first_module
+            "chapter_info": chapter_info
         })
         
         result = self.chapter_writer.process(input_data)
@@ -552,19 +588,29 @@ class InkAIWorkflowOptimized:
         # 保存章节
         chapter_saved = self.data_manager.save_chapter(
             self.context.novel_id, 
-            1, 
+            chapter_number,
             result["chapter_content"]
         )
         
         if chapter_saved:
-            self.context.set_current_step("chapter_completed")
-            print("第一章写作完成")
+            next_step = (
+                "chapter_completed"
+                if chapter_number >= GOLDEN_OPENING_CHAPTERS
+                else "chapter_writing"
+            )
+            self.context.set_current_step(next_step)
+            print(f"黄金开篇第{chapter_number}章写作完成")
             
             return {
                 "status": "success",
+                "chapter_number": chapter_number,
                 "chapter": result["chapter_content"],
                 "quality_assessment": quality_result,
-                "next_step": "chapter_completed"
+                "next_step": next_step,
+                "golden_opening_progress": {
+                    "completed": chapter_number,
+                    "target": GOLDEN_OPENING_CHAPTERS,
+                },
             }
         else:
             return {"error": "章节保存失败"}
@@ -1645,29 +1691,8 @@ class InkAIWorkflowOptimized:
             return None
 
     def _extract_clean_content(self, raw_content: str) -> str:
-        """从可能包含markdown格式的内容中提取纯文本"""
-        if not raw_content:
-            return ""
-        
-        # 如果是markdown格式的JSON，直接提取```json到```之间的内容
-        if raw_content.startswith("```json"):
-            try:
-                import json
-                # 找到```json和```的位置
-                start = raw_content.find("```json") + 7  # 跳过```json
-                end = raw_content.find("```", start)
-                if end != -1:
-                    json_str = raw_content[start:end].strip()
-                    parsed = json.loads(json_str)
-                    return parsed.get("content", raw_content)
-            except:
-                pass
-        
-        # 如果内容包含转义的换行符，转换为实际换行符
-        if "\\n" in raw_content:
-            raw_content = raw_content.replace("\\n", "\n")
-        
-        return raw_content
+        """从模型的结构化返回中提取纯正文。"""
+        return extract_chapter_text(raw_content)
     
     
     def clear_continuation_cache(self, novel_id: str = None) -> Dict[str, Any]:

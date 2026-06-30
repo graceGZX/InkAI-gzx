@@ -493,7 +493,7 @@ const WorkflowManager = {
                 'character_creation': '正在创建人物形象，AI正在分析角色设定...',
                 'storyline_generation': '正在生成故事线，AI正在构思情节发展...',
                 'knowledge_graph_creation': '正在创建知识图谱，AI正在整理故事要素...',
-                'chapter_writing': '正在写作章节内容，AI正在创作精彩故事...',
+                'chapter_writing': '正在写作黄金前三章，AI正在打磨开篇吸引力...',
                 'chapter_completed': '小说创作已完成！'
             };
             
@@ -527,7 +527,7 @@ const WorkflowManager = {
                     'character_creation': '人物形象创建成功！',
                     'storyline_generation': '故事线生成成功！',
                     'knowledge_graph_creation': '知识图谱创建成功！',
-                    'chapter_writing': '章节写作完成！'
+                    'chapter_writing': `黄金开篇第${response.data?.chapter_number || ''}章写作完成！`
                 };
                 Utils.showMessage(successMessages[stepName] || `${stepName}执行成功！`, 'success');
                 // 重新加载工作流程状态
@@ -940,13 +940,16 @@ const displayContinuationNovelList = (novels) => {
 
 const displayCreationWorkflow = (workflowData) => {
     const container = document.getElementById('workflow-container');
+    const chapterCount = workflowData.workflow_state?.chapter_count || 0;
+    const goldenTarget = workflowData.workflow_state?.golden_opening_target || 3;
+    const nextGoldenChapter = Math.min(chapterCount + 1, goldenTarget);
     
     const steps = [
         { key: 'tag_selection', name: '标签选择', icon: 'fas fa-tags' },
         { key: 'character_creation', name: '人物创建', icon: 'fas fa-users' },
         { key: 'storyline_generation', name: '故事线生成', icon: 'fas fa-route' },
         { key: 'knowledge_graph_creation', name: '知识图谱创建', icon: 'fas fa-project-diagram' },
-        { key: 'chapter_writing', name: '章节写作', icon: 'fas fa-pen-fancy' },
+        { key: 'chapter_writing', name: '黄金前三章', icon: 'fas fa-pen-fancy' },
         { key: 'chapter_completed', name: '创作完成', icon: 'fas fa-check-circle' }
     ];
     
@@ -983,7 +986,9 @@ const displayCreationWorkflow = (workflowData) => {
                         <h5 class="step-title">${step.name}</h5>
                         <p class="step-description">
                             ${status === 'completed' ? '已完成' : 
-                              status === 'current' ? '进行中' : '等待中'}
+                              status === 'current' && step.key === 'chapter_writing'
+                                  ? `正在创作第 ${nextGoldenChapter}/${goldenTarget} 章`
+                                  : status === 'current' ? '进行中' : '等待中'}
                         </p>
                     </div>
                     ${status === 'completed' ? `
@@ -1007,7 +1012,7 @@ const displayCreationWorkflow = (workflowData) => {
                 ${status === 'current' && step.key !== 'chapter_completed' ? `
                     <div class="d-flex gap-2">
                         <button class="btn btn-primary" onclick="executeStep('${step.key}')">
-                            <i class="fas fa-play me-2"></i>执行此步骤
+                            <i class="fas fa-play me-2"></i>${step.key === 'chapter_writing' ? `创作第${nextGoldenChapter}章` : '执行此步骤'}
                         </button>
                     </div>
                 ` : ''}

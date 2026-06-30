@@ -21,6 +21,7 @@ from quick_continuation_executor import get_executor, QuickContinuationProgress
 # 轻量 agent 辅助类（绕过 BaseAgent 的 abstractmethod 限制，直接调 LLM）
 from base_agent import BaseAgent
 from concept_advisor import ConceptAdvisor, fetch_market_snapshot
+from core.golden_opening import is_golden_opening_complete
 
 class _LLMAgent(BaseAgent):
     def process(self, input_data): pass
@@ -121,7 +122,7 @@ def ensure_context_loaded(novel_id):
                         if knowledge_graph:
                             # 有知识图谱，检查是否有章节
                             chapters = workflow.data_manager.get_novel_chapters(novel_id)
-                            if chapters:
+                            if is_golden_opening_complete(len(chapters)):
                                 workflow.context.set_current_step("chapter_completed")
                             else:
                                 workflow.context.set_current_step("chapter_writing")
@@ -163,7 +164,7 @@ def get_creation_workflow_status(novel_id):
         if characters:
             if storyline:
                 if knowledge_graph:
-                    if chapters:
+                    if is_golden_opening_complete(len(chapters)):
                         current_step = "chapter_completed"
                     else:
                         current_step = "chapter_writing"
@@ -189,6 +190,8 @@ def get_creation_workflow_status(novel_id):
                 "has_storyline": bool(storyline),
                 "has_knowledge_graph": bool(knowledge_graph),
                 "has_chapters": bool(chapters),
+                "chapter_count": len(chapters),
+                "golden_opening_target": 3,
                 "is_continuation": False,  # 创作模式
                 "cache_size": 0,
                 "quality_assessments_count": 0,
@@ -923,7 +926,7 @@ def get_knowledge_graph(novel_id):
 
 @app.route('/api/novels/<novel_id>/chapters', methods=['POST'])
 def write_first_chapter(novel_id):
-    """写作第一章"""
+    """写作黄金前三章中的下一章。"""
     try:
         # 确保上下文已正确加载
         if not ensure_context_loaded(novel_id):
@@ -1275,8 +1278,12 @@ def get_workflow_status(novel_id):
     try:
         # 确保上下文已正确加载
         if ensure_context_loaded(novel_id):
-            # 优先使用内存中的工作流状态（实时状态）
-            if workflow.context and workflow.context.novel_id == novel_id:
+            # 续写依赖内存中的细分步骤；新书创作以磁盘章节数为准，避免旧上下文误报完成。
+            if (
+                workflow.context
+                and workflow.context.novel_id == novel_id
+                and workflow.context.is_continuation
+            ):
                 context_status = workflow.get_workflow_status()
                 if context_status and context_status.get("current_step") != "not_started":
                     print(f"使用内存状态: {context_status.get('current_step')}")
@@ -1286,7 +1293,7 @@ def get_workflow_status(novel_id):
                     })
         
         # 如果内存状态不可用，使用文件状态作为备选
-        print("内存状态不可用，使用文件状态作为备选")
+        print("使用文件状态计算新书创作进度")
         status = get_creation_workflow_status(novel_id)
         
         return jsonify({

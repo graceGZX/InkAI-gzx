@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import config
+from core.chapter_content import extract_chapter_text
 
 
 class DataManager:
@@ -129,16 +130,10 @@ class DataManager:
                 print(f"小说目录不存在: {novel_dir}")
                 return False
             
-            # 确保章节数据包含 word_count 字段（兜底保障）
-            if 'word_count' not in chapter_content or chapter_content['word_count'] == 0:
-                content = chapter_content.get('content', '')
-                if content:
-                    # 计算实际字数（去除空白字符）
-                    clean_content = content.replace(' ', '').replace('\n', '').replace('\r', '').replace('\t', '').replace('\u3000', '')
-                    chapter_content['word_count'] = len(clean_content)
-                    print(f"自动计算章节字数: {chapter_content['word_count']}")
-                else:
-                    chapter_content['word_count'] = 0
+            # 最终持久化边界统一解包，避免模型的结构化 JSON 被当成正文保存。
+            chapter_content = dict(chapter_content)
+            chapter_content['content'] = extract_chapter_text(chapter_content.get('content', ''))
+            chapter_content['word_count'] = len(''.join(chapter_content['content'].split()))
             
             # 确保包含创建时间
             if 'created_at' not in chapter_content:
