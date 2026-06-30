@@ -858,7 +858,7 @@ class InkAIWorkflowOptimized:
             "quality_assessment": quality_result.get("quality_assessment") if quality_result.get("success") else None
         }
     
-    def improve_continuation_storyline(self, novel_id: str = None) -> Dict[str, Any]:
+    def improve_continuation_storyline(self, novel_id: str = None, suggestions: List[str] = None) -> Dict[str, Any]:
         """改进续写故事线"""
         print("开始改进续写故事线...")
         
@@ -883,7 +883,7 @@ class InkAIWorkflowOptimized:
             quality_assessment = {"suggestions": ["提升故事线的逻辑性和连贯性", "增强情节的吸引力"]}
         
         # 确保有改进建议
-        suggestions = quality_assessment.get("suggestions", [])
+        suggestions = suggestions or quality_assessment.get("suggestions", [])
         if not suggestions or len(suggestions) == 0:
             print("质量评估结果中没有改进建议，使用默认建议")
             suggestions = ["提升故事线的逻辑性和连贯性", "增强情节的吸引力", "优化人物发展轨迹"]

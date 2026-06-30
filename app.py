@@ -20,9 +20,19 @@ from quick_continuation_executor import get_executor, QuickContinuationProgress
 
 # 轻量 agent 辅助类（绕过 BaseAgent 的 abstractmethod 限制，直接调 LLM）
 from base_agent import BaseAgent
+from concept_advisor import ConceptAdvisor, fetch_market_snapshot
 
 class _LLMAgent(BaseAgent):
     def process(self, input_data): pass
+
+
+def _call_concept_llm(messages):
+    agent = _LLMAgent("小说概念顾问")
+    agent.model = "deepseek-v4-pro"
+    return agent.call_llm(messages, temperature=0.75, max_tokens=5000)
+
+
+concept_advisor = ConceptAdvisor(llm=_call_concept_llm, researcher=fetch_market_snapshot)
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -205,6 +215,28 @@ def static_files(path):
     return send_from_directory('frontend', path)
 
 # ==================== 小说创作相关API ====================
+
+@app.route('/api/concept/dialogue', methods=['POST'])
+def concept_dialogue():
+    """在创建小说前，通过多轮对话确认题材与世界观。"""
+    try:
+        data = request.get_json() or {}
+        messages = [
+            {"role": message.get("role"), "content": str(message.get("content", ""))[:6000]}
+            for message in (data.get("messages") or [])[-16:]
+            if isinstance(message, dict) and message.get("role") in ("user", "assistant")
+        ]
+        raw_seed = data.get("seed") or {}
+        seed = {
+            "title": str(raw_seed.get("title", ""))[:100],
+            "requirements": str(raw_seed.get("requirements", ""))[:5000],
+        }
+        research = data.get("research") if isinstance(data.get("research"), dict) else None
+        result = concept_advisor.respond(messages=messages, seed=seed, research=research)
+        return jsonify({"success": True, "data": result})
+    except Exception as exc:
+        print(f"小说概念对话错误: {exc}")
+        return jsonify({"success": False, "error": f"概念对话失败: {exc}"}), 500
 
 @app.route('/api/novels', methods=['GET'])
 def get_novels():
@@ -583,6 +615,168 @@ def improve_storyline(novel_id):
             "error": str(e)
         }), 500
 
+@app.route('/api/novels/<novel_id>/storyline/improve/dialogue', methods=['POST'])
+def improve_storyline_dialogue(novel_id):
+    """对话式故事线优化需求确认：AI 引导用户明确故事线优化方向"""
+    try:
+        data = request.get_json() or {}
+        messages = data.get("messages") or []
+        quality_suggestions = data.get("quality_suggestions") or []
+        scope = data.get("scope", "overall")
+        is_continuation = scope == "continuation"
+
+        storyline_key = "next_chapter_storyline" if is_continuation else "storyline"
+        quality_key = "continuation_storyline_quality_assessment" if is_continuation else "storyline_quality_assessment"
+        storyline = workflow.data_manager.load_novel_data(novel_id, storyline_key)
+        if not storyline:
+            error_label = "续写故事线" if is_continuation else "故事线"
+            return jsonify({"success": False, "error": f"{error_label}数据不存在"}), 404
+
+        metadata = workflow.data_manager.load_novel_data(novel_id, "metadata") or {}
+        tags = workflow.data_manager.load_novel_data(novel_id, "tags") or {}
+        characters = workflow.data_manager.load_novel_data(novel_id, "characters") or {}
+        quality = workflow.data_manager.load_novel_data(novel_id, quality_key) or {}
+        if not quality_suggestions:
+            quality_suggestions = quality.get("suggestions", [])
+
+        overall = storyline if is_continuation else storyline.get("overall_storyline", {})
+        first_module = {} if is_continuation else storyline.get("first_module", {})
+        main_character = characters.get("main_character", {})
+        title = metadata.get("title", "当前小说")
+        user_requirements = metadata.get("user_requirements", "")
+        selected_tags = tags.get("selected_tags", tags)
+
+        def _brief(value, limit=900):
+            if isinstance(value, (dict, list)):
+                text = json.dumps(value, ensure_ascii=False)
+            else:
+                text = str(value or "")
+            return text[:limit]
+
+        user_turns = sum(1 for m in messages if m.get("role") == "user")
+        user_msgs = [
+            m.get("content", "")
+            for m in messages
+            if m.get("role") == "user" and "确认开始优化" not in m.get("content", "") and m.get("content") != "我想优化故事线"
+        ]
+        last_user = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+
+        if "确认开始优化" in last_user or last_user.startswith("确认"):
+            confirmed = "；".join(user_msgs + quality_suggestions) or "基于当前质量评估优化故事线"
+            return jsonify({
+                "success": True,
+                "data": {
+                    "question": "需求已确认，开始优化故事线。",
+                    "options": [],
+                    "stage": "done",
+                    "confirmed_requirements": confirmed[:1000],
+                    "suggestions": list(dict.fromkeys(user_msgs + quality_suggestions))
+                }
+            })
+
+        if user_turns == 0:
+            stage_hint = "这是第 1 轮。请先询问作者想优先优化故事线的哪个方面，并给 4-5 个结合当前故事线的具体选项。"
+        else:
+            stage_hint = (
+                f"用户刚才说：「{last_user[:120]}」。这是第 {user_turns + 1} 轮。"
+                "先用一句话呼应他的具体诉求，再追问一个能影响改稿方向的关键细节。"
+                "如果已能明确「优化哪个故事线模块/怎么改/改动幅度」，返回 confirming。"
+            )
+
+        storyline_label = "下一章续写故事线" if is_continuation else "全书故事线"
+        module_guidance = (
+            "可讨论的模块包括：本章目标、场景设定、情节要点、关键事件、人物行动逻辑、伏笔、章节结尾、下章钩子。"
+            if is_continuation else
+            "可讨论的模块包括：主角目标、核心冲突、三幕剧节奏、世界观设定、人物关系、伏笔、副线、主题基调、首章钩子。"
+        )
+
+        system_prompt = f"""你是资深网文故事编辑，正在和作者连续对话，帮助他明确《{title}》的{storyline_label}优化需求。
+
+原始创作需求：
+{user_requirements[:600]}
+
+标签：
+{_brief(selected_tags, 500)}
+
+主角：
+{_brief(main_character, 700)}
+
+当前{storyline_label}：
+{_brief(overall, 1200)}
+
+首章/第一模块故事线：
+{_brief(first_module, 900)}
+
+质量评估建议：
+{_brief(quality_suggestions, 700)}
+
+{stage_hint}
+
+你的目标：
+- 追问直到能完整回答三个问题：优化哪个故事线模块？怎么优化？改动幅度多大？
+- {module_guidance}
+- 当信息足够时，给出确认总结（stage=confirming），options 固定为 ["✅ 确认开始优化", "🔄 重新描述需求"]。
+- 确认总结必须包含用户关键需求，并整理成可直接传给故事线优化智能体的建议。
+- 选项必须结合当前故事线或质量评估，不要使用空泛选项。
+
+只返回纯 JSON：
+{{"question":"...","options":["..."],"stage":"clarifying","confirmed_requirements":null,"suggestions":[]}}
+"""
+
+        llm_messages = [{"role": "system", "content": system_prompt}]
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role in ("user", "assistant") and content:
+                llm_messages.append({"role": role, "content": content})
+        if not messages:
+            llm_messages.append({"role": "user", "content": "我想优化故事线"})
+
+        agent = _LLMAgent("故事线需求对话")
+        agent.model = "deepseek-v4-pro"
+        response = agent.call_llm(llm_messages, temperature=0.7, max_tokens=800)
+        result = agent.parse_json_response(response)
+
+        if not result or not isinstance(result, dict) or "question" not in result:
+            print(f"[storyline-dialogue] JSON 解析失败，原始响应: {response[:300]}")
+            if user_turns == 0:
+                result = {
+                    "question": "您想优先优化故事线的哪个部分？我可以先从质量评估里指出的薄弱点开始。",
+                    "options": ["强化核心冲突和主角目标", "调整三幕剧节奏", "补强伏笔与副线", "优化人物关系推动剧情", "按质量评估建议整体优化"],
+                    "stage": "opening",
+                    "confirmed_requirements": None,
+                    "suggestions": []
+                }
+            elif user_turns <= 2:
+                result = {
+                    "question": f"明白，您想处理「{last_user[:60]}」。这次希望是小幅补强，还是允许重排关键剧情节点？",
+                    "options": ["小幅补强设定与伏笔", "中等调整节奏和冲突", "大幅重排剧情节点", "我补充说明"],
+                    "stage": "clarifying",
+                    "confirmed_requirements": None,
+                    "suggestions": []
+                }
+            else:
+                confirmed = "；".join(user_msgs + quality_suggestions)
+                result = {
+                    "question": f"总结您的故事线优化需求：{confirmed[:260]}。确认开始优化吗？",
+                    "options": ["✅ 确认开始优化", "🔄 重新描述需求"],
+                    "stage": "confirming",
+                    "confirmed_requirements": confirmed[:1000],
+                    "suggestions": list(dict.fromkeys(user_msgs + quality_suggestions))
+                }
+
+        if result.get("stage") == "confirming" and not result.get("suggestions"):
+            confirmed = result.get("confirmed_requirements") or result.get("question", "")
+            result["suggestions"] = list(dict.fromkeys(user_msgs + quality_suggestions + ([confirmed] if confirmed else [])))
+
+        return jsonify({"success": True, "data": result})
+
+    except Exception as e:
+        print(f"故事线需求对话错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"对话失败: {str(e)}"}), 500
+
 @app.route('/api/novels/<novel_id>/storyline/quality', methods=['POST'])
 def assess_storyline_quality(novel_id):
     """评估故事线质量"""
@@ -862,7 +1056,9 @@ def improve_continuation_storyline(novel_id):
                 "error": "无法加载小说数据"
             }), 404
         
-        result = workflow.improve_continuation_storyline(novel_id)
+        data = request.get_json(silent=True) or {}
+        suggestions = data.get('suggestions') or []
+        result = workflow.improve_continuation_storyline(novel_id, suggestions)
         
         if "error" in result:
             return jsonify({
@@ -2243,6 +2439,18 @@ def save_novel_rule(novel_id):
     """保存/更新一条规则"""
     try:
         body = request.get_json() or {}
+        rules = body.get("rules")
+        if isinstance(rules, list):
+            valid_rules = [rule for rule in rules if isinstance(rule, dict) and rule.get("content")]
+            if not valid_rules or len(valid_rules) != len(rules):
+                return jsonify({"success": False, "error": "每条规则的 content 都不能为空"}), 400
+            rm = RulesManager(novel_id)
+            rule_ids = rm.add_rules(valid_rules)
+            return jsonify({
+                "success": True,
+                "data": {"rule_ids": rule_ids, "action": "created", "count": len(rule_ids)}
+            })
+
         rule = body.get("rule", {})
         if not rule.get("content"):
             return jsonify({"success": False, "error": "规则 content 不能为空"}), 400
@@ -2328,11 +2536,12 @@ def rules_dialogue(novel_id):
 - 一次只聊一个维度，聊透了再问要不要换话题
 
 返回纯 JSON（不要 markdown 代码块）：
-{{"question":"...","options":["...","..."],"stage":"clarifying","rule_update":null}}
+{{"question":"...","options":["...","..."],"stage":"clarifying","rule_updates":[]}}
 
 - stage 可以是 clarifying（还在了解需求）/ confirming（提炼出规则，让用户确认）/ done（规则已确认保存）
-- 当 stage=confirming 时，把提炼出的规则放在 rule_update 字段：
-  rule_update: {{"category":"writing_style|character|plot|dialogue|pacing|worldbuilding|general","title":"简短标题","content":"具体规则内容","priority":"must|should|may"}}
+- 当 stage=confirming 时，把提炼出的规则放在 rule_updates 数组：
+  rule_updates: [{{"category":"writing_style|character|plot|dialogue|pacing|worldbuilding|general","title":"简短标题","content":"具体规则内容","priority":"must|should|may"}}]
+- 每个可独立执行的要求必须拆成单独一条规则。总结出 3 条要求时，rule_updates 必须包含 3 个对象，禁止合并成一条长规则。
 - 当 stage=done 时，question 中告诉用户规则已保存
 
 每轮回复格式（严格遵守）：
@@ -2361,10 +2570,16 @@ def rules_dialogue(novel_id):
                 raw_text = response.strip().replace('```json', '').replace('```', '').strip()
             result = {
                 "question": raw_text or "抱歉，我好像走神了。我们继续聊，你刚才想说什么？",
-                "options": ["继续说", "换个话题"],
+                "options": ["把以上内容整理为独立规则并保存", "继续调整这些规则"],
                 "stage": "clarifying",
-                "rule_update": None,
+                "rule_updates": [],
             }
+
+        rule_updates = result.get("rule_updates")
+        if not isinstance(rule_updates, list):
+            legacy_update = result.get("rule_update")
+            rule_updates = [legacy_update] if isinstance(legacy_update, dict) else []
+        result["rule_updates"] = [rule for rule in rule_updates if isinstance(rule, dict) and rule.get("content")]
 
         return jsonify({"success": True, "data": result})
 

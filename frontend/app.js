@@ -2194,8 +2194,8 @@ const StepDetailsManager = {
                             <button class="btn btn-outline-info btn-sm" onclick="assessQuality('storyline_generation')">
                                 <i class="fas fa-star me-1"></i>质量评估
                             </button>
-                            <button class="btn btn-outline-success btn-sm" onclick="optimizeStorylineBasedOnQuality()">
-                                <i class="fas fa-magic me-1"></i>基于质量评估优化
+                            <button class="btn btn-outline-success btn-sm" onclick="startStorylineOptimizeDialogue(true)">
+                                <i class="fas fa-comments me-1"></i>对话式优化
                             </button>
                         </div>
                     </div>
@@ -2273,7 +2273,7 @@ const StepDetailsManager = {
                             <i class="fas fa-redo me-2"></i>重新生成故事线
                         </button>
                         <button class="btn btn-info btn-sm" onclick="improveStep('storyline_generation')">
-                            <i class="fas fa-magic me-2"></i>改进故事线
+                            <i class="fas fa-comments me-2"></i>对话优化故事线
                         </button>
                         <button class="btn btn-success btn-sm" onclick="saveStepContent('storyline_generation')" style="display: none;" id="save-storyline-generation-btn">
                             <i class="fas fa-save me-2"></i>保存修改
@@ -4596,8 +4596,8 @@ window.createNovel = async () => {
         return;
     }
     
-    if (requirements.length > 2000) {
-        Utils.showMessage('创作需求不能超过2000个字符', 'warning');
+    if (requirements.length > 5000) {
+        Utils.showMessage('创作需求不能超过5000个字符', 'warning');
         document.getElementById('novel-requirements').focus();
         return;
     }
@@ -4608,15 +4608,217 @@ window.createNovel = async () => {
         return;
     }
     
-    // 检查是否包含敏感词（简单检查）
-    const sensitiveWords = ['暴力', '色情', '政治'];
-    const hasSensitiveWord = sensitiveWords.some(word => requirements.includes(word));
-    if (hasSensitiveWord) {
-        Utils.showMessage('创作需求包含不当内容，请修改后重试', 'warning');
+    await NovelManager.createNovel(title, requirements);
+};
+
+// ── 新小说题材与世界观对话确认 ──
+window._conceptDialogue = {
+    messages: [],
+    research: null,
+    seed: {},
+    latest: null,
+    waiting: false
+};
+
+window.startConceptDialogue = function () {
+    var title = document.getElementById('novel-title').value.trim();
+    var requirements = document.getElementById('novel-requirements').value.trim();
+    var state = window._conceptDialogue;
+    state.messages = [];
+    state.research = null;
+    state.seed = { title: title, requirements: requirements };
+    state.latest = null;
+    state.waiting = false;
+
+    var existing = document.getElementById('conceptDialogueModal');
+    if (existing) existing.remove();
+
+    var modalHtml = `
+        <div class="modal fade" id="conceptDialogueModal" tabindex="-1">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title"><i class="fas fa-compass me-2"></i>题材与世界观确认</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="concept-research-status" class="concept-research-status mb-3"></div>
+                        <div id="concept-dialogue-messages" class="concept-dialogue-messages"></div>
+                        <div id="concept-dialogue-composer" class="input-group mt-3">
+                            <textarea class="form-control" id="concept-dialogue-input" rows="2" placeholder="补充你的偏好或修改意见..."></textarea>
+                            <button class="btn btn-primary" type="button" onclick="sendConceptMessage()" title="发送">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    new bootstrap.Modal(document.getElementById('conceptDialogueModal')).show();
+    renderConceptDialogue();
+    requestConceptDialogue();
+};
+
+var requestConceptDialogue = async function () {
+    var state = window._conceptDialogue;
+    if (state.waiting) return;
+    state.waiting = true;
+    renderConceptDialogue();
+    try {
+        var response = await Utils.apiRequest('/concept/dialogue', {
+            method: 'POST',
+            body: JSON.stringify({
+                messages: state.messages.map(function (message) {
+                    return { role: message.role, content: message.historyContent || message.content };
+                }),
+                seed: state.seed,
+                research: state.research
+            })
+        });
+        if (!response.success) throw new Error(response.error || '概念对话失败');
+        var data = response.data;
+        state.research = data.research || state.research;
+        state.latest = data;
+        var proposalContext = data.proposals && data.proposals.length > 0
+            ? '\n\n【候选提案完整数据】\n' + JSON.stringify(data.proposals)
+            : '';
+        state.messages.push({
+            role: 'assistant',
+            content: data.question,
+            historyContent: data.question + proposalContext,
+            options: data.options || [],
+            stage: data.stage,
+            concept: data.concept || null,
+            proposals: data.proposals || []
+        });
+    } catch (error) {
+        Utils.showMessage('概念对话失败: ' + error.message, 'danger');
+    } finally {
+        state.waiting = false;
+        renderConceptDialogue();
+    }
+};
+
+var renderConceptDialogue = function () {
+    var state = window._conceptDialogue;
+    var messagesEl = document.getElementById('concept-dialogue-messages');
+    if (!messagesEl) return;
+    var html = '';
+
+    state.messages.forEach(function (message, index) {
+        var isAssistant = message.role === 'assistant';
+        html += '<div class="dialogue-msg ' + (isAssistant ? 'dialogue-ai' : 'dialogue-user') + '">';
+        html += '<div class="dialogue-bubble ' + (isAssistant ? 'ai-bubble' : 'user-bubble') + '">' +
+            Utils.escapeHtml(message.content || '').replace(/\n/g, '<br>') + '</div>';
+        var isLatest = index === state.messages.length - 1;
+        if (isAssistant && isLatest && message.proposals && message.proposals.length > 0) {
+            html += renderConceptProposals(message.proposals);
+        }
+        if (isAssistant && isLatest && message.options && message.options.length > 0) {
+            html += '<div class="concept-options mt-2">';
+            message.options.forEach(function (option, optionIndex) {
+                var primary = message.stage === 'confirming' && optionIndex === 0;
+                html += '<button type="button" class="btn btn-sm ' + (primary ? 'btn-success' : 'btn-outline-primary') + '" onclick="selectConceptOption(' + optionIndex + ')">' +
+                    Utils.escapeHtml(option) + '</button>';
+            });
+            html += '</div>';
+        }
+        if (isAssistant && isLatest && message.stage === 'confirming' && message.concept) {
+            html += renderConceptSummary(message.concept);
+        }
+        html += '</div>';
+    });
+
+    if (state.waiting) {
+        html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble"><span class="spinner-border spinner-border-sm me-2"></span>' +
+            (state.messages.length === 0 ? '正在搜索题材趋势并整理候选...' : '正在继续推演...') + '</div></div>';
+    }
+    messagesEl.innerHTML = html;
+    var firstRecommendation = state.messages.length === 1 && state.latest && state.latest.stage === 'recommending';
+    messagesEl.scrollTop = firstRecommendation ? 0 : messagesEl.scrollHeight;
+
+    var researchEl = document.getElementById('concept-research-status');
+    if (researchEl) {
+        if (!state.research) {
+            researchEl.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>市场调研中</span>';
+        } else {
+            var isLive = state.research.status === 'live';
+            var sources = (state.research.sources || []).join('、');
+            researchEl.innerHTML = '<span class="badge ' + (isLive ? 'bg-success' : 'bg-secondary') + '">' +
+                (isLive ? '实时调研' : '品类知识') + '</span>' +
+                '<span class="small text-muted ms-2">' + Utils.escapeHtml(sources || state.research.checked_at || '') + '</span>';
+        }
+    }
+
+    var composer = document.getElementById('concept-dialogue-composer');
+    if (composer) composer.style.display = state.latest && state.latest.stage === 'confirming' ? 'none' : 'flex';
+};
+
+var renderConceptProposals = function (proposals) {
+    var html = '<div class="concept-proposals mt-3">';
+    proposals.forEach(function (proposal) {
+        html += '<div class="concept-proposal">' +
+            '<div class="d-flex justify-content-between gap-2"><strong>' + Utils.escapeHtml((proposal.code || '') + ' ' + (proposal.title || '未命名')) + '</strong>' +
+            '<span class="badge bg-light text-dark">' + Utils.escapeHtml(proposal.genre || '待定题材') + '</span></div>' +
+            '<div class="small mt-2"><strong>一句话故事：</strong>' + Utils.escapeHtml(proposal.logline || '') + '</div>' +
+            '<div class="small mt-1"><strong>差异卖点：</strong>' + Utils.escapeHtml((proposal.selling_points || []).join('；')) + '</div>' +
+            '<div class="small mt-1"><strong>读者与爽点：</strong>' + Utils.escapeHtml([proposal.audience, proposal.tone].filter(Boolean).join('；')) + '</div>' +
+            '<div class="small text-muted mt-1"><strong>权衡：</strong>' + Utils.escapeHtml(proposal.tradeoff || '') + '</div>' +
+            '</div>';
+    });
+    return html + '</div>';
+};
+
+var renderConceptSummary = function (concept) {
+    var world = concept.world || {};
+    return '<div class="concept-summary mt-3 pt-3 border-top">' +
+        '<h6 class="mb-2">' + Utils.escapeHtml(concept.title || '未命名小说') + '</h6>' +
+        '<div class="small"><strong>题材：</strong>' + Utils.escapeHtml([concept.genre, concept.subgenre].filter(Boolean).join(' / ')) + '</div>' +
+        '<div class="small mt-1"><strong>一句话故事：</strong>' + Utils.escapeHtml(concept.logline || '') + '</div>' +
+        '<div class="small mt-1"><strong>力量体系：</strong>' + Utils.escapeHtml(world.power_system || '') + '</div>' +
+        '<div class="small mt-1"><strong>限制与代价：</strong>' + Utils.escapeHtml(world.limitations || '') + '</div>' +
+        '<div class="small mt-1"><strong>核心冲突：</strong>' + Utils.escapeHtml((world.core_conflicts || []).join('；')) + '</div>' +
+        '</div>';
+};
+
+window.selectConceptOption = function (optionIndex) {
+    var state = window._conceptDialogue;
+    var latest = state.latest;
+    if (!latest || state.waiting) return;
+    if (latest.stage === 'confirming' && optionIndex === 0) {
+        applyConceptToForm(latest.concept);
         return;
     }
-    
-    await NovelManager.createNovel(title, requirements);
+    var option = (latest.options || [])[optionIndex];
+    if (!option) return;
+    state.messages.push({ role: 'user', content: option });
+    requestConceptDialogue();
+};
+
+window.sendConceptMessage = function () {
+    var input = document.getElementById('concept-dialogue-input');
+    var text = input ? input.value.trim() : '';
+    if (!text || window._conceptDialogue.waiting) return;
+    input.value = '';
+    window._conceptDialogue.messages.push({ role: 'user', content: text });
+    requestConceptDialogue();
+};
+
+var applyConceptToForm = function (concept) {
+    if (!concept) return;
+    var titleInput = document.getElementById('novel-title');
+    var requirementsInput = document.getElementById('novel-requirements');
+    if (concept.title) titleInput.value = concept.title;
+    requirementsInput.value = concept.requirements_text || '';
+    requirementsInput.dispatchEvent(new Event('input', { bubbles: true }));
+    var modal = bootstrap.Modal.getInstance(document.getElementById('conceptDialogueModal'));
+    if (modal) modal.hide();
+    Utils.showMessage('题材与世界观已填写，请确认后开始创作', 'success');
 };
 
 window.startContinuation = async () => {
@@ -4805,6 +5007,11 @@ window.regenerateStep = async (stepKey) => {
 window.improveStep = async (stepKey) => {
     if (!AppState.currentNovelId) {
         Utils.showMessage('没有活跃的小说项目', 'warning');
+        return;
+    }
+
+    if (stepKey === 'storyline_generation') {
+        startStorylineOptimizeDialogue(false);
         return;
     }
     
@@ -5801,36 +6008,213 @@ window.optimizeCharactersBasedOnQuality = async () => {
     }
 };
 
-// 基于质量评估优化故事线
-window.optimizeStorylineBasedOnQuality = async () => {
+// ── 故事线对话式优化 ──
+window._storylineDialogue = { messages: [], qualitySuggestions: [], done: false };
+
+window.startStorylineOptimizeDialogue = async (useQualityAssessment = true, scope = 'overall') => {
     if (!AppState.currentNovelId) {
         Utils.showMessage('没有活跃的小说项目', 'warning');
         return;
     }
-    
+
+    const modalHtml = `
+        <div class="modal fade" id="storylineOptimizeModal" tabindex="-1">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="fas fa-comments me-2"></i>${scope === 'continuation' ? '续写故事线' : '故事线'}对话式优化</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="dialogue-container mb-3" id="storyline-dialogue-container">
+                            <div id="storyline-dialogue-messages">
+                                <div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>AI 正在阅读故事线...</div>
+                            </div>
+                        </div>
+                        <div class="dialogue-custom-input">
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="storyline-dialogue-input" placeholder="直接补充你的故事线优化想法...">
+                                <button class="btn btn-outline-primary" type="button" onclick="submitStorylineDialogueCustom()">
+                                    <i class="fas fa-paper-plane me-1"></i>发送
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-text mt-2">AI 会先帮你确认优化范围，确认后再改写故事线。</div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const existingModal = document.getElementById('storylineOptimizeModal');
+    if (existingModal) existingModal.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modalEl = document.getElementById('storylineOptimizeModal');
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+
+    window._storylineDialogue = { messages: [], qualitySuggestions: [], done: false, scope: scope };
+
     try {
-        Utils.showLoading('正在基于质量评估优化故事线...');
-        
-        // 首先检查是否有质量评估数据
-        const qualityResponse = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/data/storyline_quality_assessment`);
-        
-        if (!qualityResponse.success || !qualityResponse.data) {
-            Utils.hideLoading();
-            Utils.showMessage('请先进行故事线质量评估', 'warning');
-            return;
+        if (useQualityAssessment) {
+            try {
+                const qualityKey = scope === 'continuation' ? 'continuation_storyline_quality_assessment' : 'storyline_quality_assessment';
+                const qualityResponse = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/data/${qualityKey}`);
+                if (qualityResponse.success && qualityResponse.data) {
+                    window._storylineDialogue.qualitySuggestions = qualityResponse.data.suggestions || [];
+                }
+            } catch (error) {
+                console.log('未找到故事线质量评估，仍可进行对话式优化');
+            }
         }
-        
-        const qualityData = qualityResponse.data;
-        const suggestions = qualityData.suggestions || [];
-        
-        if (suggestions.length === 0) {
-            Utils.hideLoading();
-            Utils.showMessage('质量评估显示故事线已经很好，无需优化', 'info');
-            return;
+
+        const resp = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/storyline/improve/dialogue`, {
+            method: 'POST',
+            body: JSON.stringify({
+                messages: [],
+                quality_suggestions: window._storylineDialogue.qualitySuggestions,
+                scope: scope
+            })
+        });
+
+        const data = resp.data;
+        window._storylineDialogue.messages.push({ role: 'user', content: '我想优化故事线' });
+        window._storylineDialogue.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage });
+        renderStorylineDialogue(data);
+    } catch (error) {
+        const msgEl = document.getElementById('storyline-dialogue-messages');
+        if (msgEl) {
+            msgEl.innerHTML = '<div class="alert alert-warning py-2">对话启动失败: ' + Utils.escapeHtml(error.message) + '</div>';
         }
-        
-        // 调用故事线优化API
-        const response = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/storyline/improve`, {
+    }
+};
+
+var renderStorylineDialogue = function(data) {
+    const messagesEl = document.getElementById('storyline-dialogue-messages');
+    if (!messagesEl) return;
+
+    const state = window._storylineDialogue;
+    const stage = data.stage || 'clarifying';
+    let html = '';
+
+    state.messages.forEach(function(msg, idx) {
+        const isLastAssistant = msg.role === 'assistant' && idx === state.messages.length - 1;
+        if (msg.role === 'assistant') {
+            html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(msg.content) + '</div>';
+            if (isLastAssistant && stage !== 'done') {
+                const opts = data.options || msg.options || [];
+                if (opts.length > 0) {
+                    html += '<div class="chat-quick-replies">';
+                    opts.forEach(function(opt, optIdx) {
+                        if (stage === 'confirming') {
+                            const cls = optIdx === 0 ? 'chat-reply-btn confirm' : 'chat-reply-btn secondary';
+                            html += '<span class="' + cls + '" onclick="confirmStorylineDialogueOption(' + optIdx + ')">' + Utils.escapeHtml(opt) + '</span>';
+                        } else {
+                            html += '<span class="chat-reply-btn" onclick="selectStorylineDialogueOption(\'' + Utils.escapeHtml(opt).replace(/'/g, "\\'") + '\')">' + Utils.escapeHtml(opt) + '</span>';
+                        }
+                    });
+                    html += '</div>';
+                }
+            }
+            html += '</div>';
+        } else {
+            html += '<div class="dialogue-msg dialogue-user"><div class="dialogue-bubble user-bubble">' + Utils.escapeHtml(msg.content) + '</div></div>';
+        }
+    });
+
+    if (stage === 'done') {
+        html += '<div class="alert alert-success py-2 mt-2"><i class="fas fa-check-circle me-1"></i>需求已确认，正在优化故事线...</div>';
+        messagesEl.innerHTML = html;
+        state.done = true;
+        runStorylineOptimization(data.suggestions || [data.confirmed_requirements || '基于对话需求优化故事线'], state.scope);
+        return;
+    }
+
+    messagesEl.innerHTML = html;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    const input = document.getElementById('storyline-dialogue-input');
+    if (input) input.focus();
+};
+
+window.selectStorylineDialogueOption = async (option) => {
+    const state = window._storylineDialogue;
+    state.messages.push({ role: 'user', content: option });
+
+    const messagesEl = document.getElementById('storyline-dialogue-messages');
+    const typingId = 'storyline-typing-' + Date.now();
+    if (messagesEl) {
+        messagesEl.innerHTML +=
+            '<div class="dialogue-msg dialogue-user"><div class="dialogue-bubble user-bubble">' + Utils.escapeHtml(option) + '</div></div>' +
+            '<div id="' + typingId + '" class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble"><span class="spinner-border spinner-border-sm me-1"></span>思考中...</div></div>';
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    try {
+        const resp = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/storyline/improve/dialogue`, {
+            method: 'POST',
+            body: JSON.stringify({
+                messages: state.messages.map(function(m) { return { role: m.role, content: m.content }; }),
+                quality_suggestions: state.qualitySuggestions,
+                scope: state.scope
+            })
+        });
+        const typing = document.getElementById(typingId);
+        if (typing) typing.remove();
+        const data = resp.data;
+        state.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage });
+        renderStorylineDialogue(data);
+    } catch (error) {
+        const typing = document.getElementById(typingId);
+        if (typing) typing.remove();
+        if (messagesEl) {
+            messagesEl.innerHTML += '<div class="alert alert-warning py-2 mt-1">对话出错: ' + Utils.escapeHtml(error.message) + '</div>';
+        }
+    }
+};
+
+window.confirmStorylineDialogueOption = async (idx) => {
+    if (idx !== 0) {
+        const input = document.getElementById('storyline-dialogue-input');
+        if (input) {
+            input.value = '';
+            input.placeholder = '请重新描述你的故事线优化需求...';
+            input.focus();
+        }
+        return;
+    }
+    await selectStorylineDialogueOption('确认开始优化');
+};
+
+window.submitStorylineDialogueCustom = async () => {
+    const input = document.getElementById('storyline-dialogue-input');
+    const text = input ? input.value.trim() : '';
+    if (!text) {
+        if (input) input.focus();
+        return;
+    }
+    input.value = '';
+    await selectStorylineDialogueOption(text);
+};
+
+// 基于质量评估优化故事线
+window.optimizeStorylineBasedOnQuality = async () => {
+    startStorylineOptimizeDialogue(true);
+};
+
+var runStorylineOptimization = async (suggestions, scope = 'overall') => {
+    if (!AppState.currentNovelId) {
+        Utils.showMessage('没有活跃的小说项目', 'warning');
+        return;
+    }
+
+    try {
+        Utils.showLoading('正在根据对话需求优化故事线...');
+
+        const endpoint = scope === 'continuation' ? 'continuation/storyline/improve' : 'storyline/improve';
+        const response = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/${endpoint}`, {
             method: 'POST',
             body: JSON.stringify({
                 suggestions: suggestions
@@ -5855,7 +6239,9 @@ window.optimizeStorylineBasedOnQuality = async () => {
 
             // 刷新故事线详情显示
             const storylineDetailsElement = document.getElementById('storyline-content');
-            if (storylineDetailsElement) {
+            if (scope === 'continuation') {
+                await ContinuationManager.loadContinuationWorkflow(AppState.currentNovelId);
+            } else if (storylineDetailsElement) {
                 await StepDetailsManager.loadStorylineDetails(document.getElementById('step-details-storyline_generation'));
             }
         } else {
@@ -5887,9 +6273,9 @@ document.addEventListener('DOMContentLoaded', () => {
             requirementsCount.textContent = count;
             
             // 根据字符数改变颜色
-            if (count > 1800) {
+            if (count > 4800) {
                 requirementsCount.style.color = '#dc3545'; // 红色
-            } else if (count > 1500) {
+            } else if (count > 4200) {
                 requirementsCount.style.color = '#ffc107'; // 黄色
             } else {
                 requirementsCount.style.color = '#6c757d'; // 灰色
@@ -6080,68 +6466,7 @@ window.assessContinuationQuality = async (contentType) => {
 };
 
 window.optimizeContinuationStorylineBasedOnQuality = async () => {
-    if (!AppState.currentNovelId) {
-        Utils.showMessage('没有活跃的小说项目', 'warning');
-        return;
-    }
-    
-    try {
-        Utils.showLoading('正在基于质量评估优化故事线...');
-        
-        // 首先检查是否有质量评估数据
-        const qualityResponse = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/data/continuation_storyline_quality_assessment`);
-        
-        if (!qualityResponse.success || !qualityResponse.data) {
-            Utils.hideLoading();
-            Utils.showMessage('请先进行续写故事线质量评估', 'warning');
-            return;
-        }
-        
-        const qualityData = qualityResponse.data;
-        const suggestions = qualityData.suggestions || [];
-        
-        if (suggestions.length === 0) {
-            Utils.hideLoading();
-            Utils.showMessage('质量评估显示续写故事线已经很好，无需优化', 'info');
-            return;
-        }
-        
-        // 调用续写故事线优化API
-        const response = await Utils.apiRequest(`/novels/${AppState.currentNovelId}/continuation/storyline/improve`, {
-            method: 'POST',
-            body: JSON.stringify({
-                suggestions: suggestions
-            })
-        });
-        
-        Utils.hideLoading();
-        
-        if (response.success) {
-            const result = response.data;
-            // 展示优化后的新质量评估弹窗
-            if (result.quality_assessment) {
-                showQualityAssessmentModal(result.quality_assessment, 'storyline');
-            } else if (result.status === 'success') {
-                Utils.showMessage('续写故事线优化完成！', 'success');
-            } else if (result.status === 'needs_improvement') {
-                Utils.showMessage('续写故事线已优化，但仍有改进空间', 'warning');
-            } else {
-                Utils.showMessage('续写故事线优化完成，但状态未知', 'info');
-            }
-
-            // 只重新加载当前的故事线详情以显示优化结果
-            const currentStepElement = document.querySelector('.step-item.current .step-details');
-            if (currentStepElement) {
-                await ContinuationManager.loadContinuationStorylineDetails(currentStepElement);
-            }
-        } else {
-            Utils.showMessage('续写故事线优化失败: ' + (response.error || '未知错误'), 'danger');
-        }
-    } catch (error) {
-        Utils.showMessage('续写故事线优化失败: ' + error.message, 'danger');
-    } finally {
-        Utils.hideLoading();
-    }
+    startStorylineOptimizeDialogue(true, 'continuation');
 };
 
 // 续写步骤操作函数
@@ -6188,7 +6513,12 @@ window.improveContinuationStep = async (stepKey) => {
         return;
     }
     
-    // 显示改进对话框
+    if (stepKey === 'storyline_generation') {
+        startStorylineOptimizeDialogue(true, 'continuation');
+        return;
+    }
+
+    // 显示章节改进对话框
     const improvementType = stepKey === 'storyline_generation' ? 'storyline' : 'chapter';
     showContinuationImprovementDialog(improvementType);
 };
@@ -7694,6 +8024,13 @@ window.startRulesDialogue = function () {
     ds.messages = [];
     ds.done = false;
 
+    var inputArea = document.querySelector('.rules-dialogue-input');
+    if (inputArea) {
+        inputArea.innerHTML =
+            '<textarea class="form-control" id="rules-dialogue-input" rows="2" placeholder="描述你想要的规则..."></textarea>' +
+            '<button class="btn btn-primary mt-2" onclick="sendRulesMessage()"><i class="fas fa-paper-plane me-1"></i>发送</button>';
+    }
+
     var container = document.getElementById('rules-dialogue-container');
     container.style.display = 'block';
     var msgArea = document.getElementById('rules-dialogue-messages');
@@ -7717,7 +8054,7 @@ window.startRulesDialogue = function () {
         if (!resp.success) { Utils.showMessage(resp.error || '对话启动失败', 'danger'); msgArea.innerHTML = ''; return; }
         var data = resp.data;
         ds.messages.push({ role: 'user', content: '我想给这本小说建立一些写作规则' });
-        ds.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage, rule_update: data.rule_update });
+        ds.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage, rule_updates: data.rule_updates || (data.rule_update ? [data.rule_update] : []) });
         renderRulesDialogue();
     }).catch(function (e) {
         Utils.showMessage('对话启动失败: ' + e.message, 'danger');
@@ -7753,27 +8090,24 @@ var renderRulesDialogue = function () {
     // 对话完成 / 确认 → 保存规则
     var lastMsg = ds.messages[ds.messages.length - 1];
     if (lastMsg && lastMsg.role === 'assistant' && !ds.done) {
-        // stage=confirming 时立刻保存 rule_update，不等 done
-        if (lastMsg.stage === 'confirming' && lastMsg.rule_update) {
-            saveRuleToServer(lastMsg.rule_update);
+        var pendingRules = lastMsg.rule_updates || (lastMsg.rule_update ? [lastMsg.rule_update] : []);
+        if ((lastMsg.stage === 'confirming' || lastMsg.stage === 'done') && pendingRules.length > 0) {
             ds.done = true;
             var inputArea = document.querySelector('.rules-dialogue-input');
             if (inputArea) {
-                inputArea.innerHTML =
-                    '<button class="btn btn-outline-primary btn-sm me-2" onclick="startRulesDialogue()"><i class="fas fa-plus me-1"></i>继续添加规则</button>' +
-                    '<button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById(\'rules-dialogue-container\').style.display=\'none\';loadRulesList();"><i class="fas fa-check me-1"></i>完成</button>';
+                inputArea.innerHTML = '<button class="btn btn-outline-secondary btn-sm" disabled><span class="spinner-border spinner-border-sm me-1"></span>正在保存 ' + pendingRules.length + ' 条规则...</button>';
             }
+            saveRulesToServer(pendingRules).then(function () {
+                showRulesDialogueCompletionActions();
+            }).catch(function () {
+                ds.done = false;
+                if (inputArea) {
+                    inputArea.innerHTML = '<button class="btn btn-outline-danger btn-sm" onclick="renderRulesDialogue()"><i class="fas fa-redo me-1"></i>重试保存</button>';
+                }
+            });
         } else if (lastMsg.stage === 'done') {
             ds.done = true;
-            if (lastMsg.rule_update) {
-                saveRuleToServer(lastMsg.rule_update);
-            }
-            var inputArea2 = document.querySelector('.rules-dialogue-input');
-            if (inputArea2) {
-                inputArea2.innerHTML =
-                    '<button class="btn btn-outline-primary btn-sm me-2" onclick="startRulesDialogue()"><i class="fas fa-plus me-1"></i>继续添加规则</button>' +
-                    '<button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById(\'rules-dialogue-container\').style.display=\'none\';loadRulesList();"><i class="fas fa-check me-1"></i>完成</button>';
-            }
+            showRulesDialogueCompletionActions();
         }
     }
 };
@@ -7782,12 +8116,6 @@ window.selectRulesOption = function (option, idx) {
     var ds = window._rulesDialogue;
     var novelId = AppState.selectedNovelId;
     ds.messages.push({ role: 'user', content: option });
-
-    if (option.indexOf('结束') >= 0 || option.indexOf('完成') >= 0 || option.indexOf('不再添加') >= 0) {
-        document.getElementById('rules-dialogue-container').style.display = 'none';
-        loadRulesList();
-        return;
-    }
 
     // append 用户气泡 + 等待气泡（不替换整个消息区）
     var msgArea = document.getElementById('rules-dialogue-messages');
@@ -7819,7 +8147,7 @@ window.selectRulesOption = function (option, idx) {
         if (tb) tb.remove();
         if (!resp.success) { Utils.showMessage(resp.error || '对话失败', 'danger'); renderRulesDialogue(); return; }
         var data = resp.data;
-        ds.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage, rule_update: data.rule_update });
+        ds.messages.push({ role: 'assistant', content: data.question, options: data.options || [], stage: data.stage, rule_updates: data.rule_updates || (data.rule_update ? [data.rule_update] : []) });
         renderRulesDialogue();
     })
     .catch(function (e) {
@@ -7840,18 +8168,26 @@ window.sendRulesMessage = function () {
 
 // ── 规则 CRUD ──
 
-var saveRuleToServer = function (rule) {
+var showRulesDialogueCompletionActions = function () {
+    var inputArea = document.querySelector('.rules-dialogue-input');
+    if (!inputArea) return;
+    inputArea.innerHTML =
+        '<button class="btn btn-outline-primary btn-sm me-2" onclick="startRulesDialogue()"><i class="fas fa-plus me-1"></i>继续添加规则</button>' +
+        '<button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById(\'rules-dialogue-container\').style.display=\'none\';loadRulesList();"><i class="fas fa-check me-1"></i>完成</button>';
+};
+
+var saveRulesToServer = function (rules) {
     var novelId = AppState.selectedNovelId;
-    if (!novelId) return;
-    fetch(API_BASE + '/novels/' + novelId + '/rules', {
+    if (!novelId) return Promise.reject(new Error('请先选择小说'));
+    return fetch(API_BASE + '/novels/' + novelId + '/rules', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rule: rule })
+        body: JSON.stringify({ rules: rules })
     })
     .then(function (r) { return r.json(); })
     .then(function (resp) {
         if (resp.success) {
-            Utils.showMessage('规则已保存', 'success');
+            Utils.showMessage(rules.length + ' 条规则已保存', 'success');
             loadRulesList();
             // 刷新 existingRules 缓存，下一轮对话能看到刚保存的规则
             Utils.apiRequest('/novels/' + novelId + '/rules').then(function(r) {
@@ -7860,10 +8196,14 @@ var saveRuleToServer = function (rule) {
                 }
             });
         } else {
-            Utils.showMessage('保存失败: ' + (resp.error || ''), 'danger');
+            throw new Error(resp.error || '保存失败');
         }
+        return resp;
     })
-    .catch(function (e) { Utils.showMessage('保存失败: ' + e.message, 'danger'); });
+    .catch(function (e) {
+        Utils.showMessage('保存失败: ' + e.message, 'danger');
+        throw e;
+    });
 };
 
 window.editRule = function (ruleId) {
