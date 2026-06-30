@@ -7,6 +7,15 @@ from base_agent import BaseAgent
 from typing import Dict, List, Any, Optional
 import config
 from core.chapter_content import extract_chapter_text
+from core.chapter_length import (
+    CHAPTER_GENERATION_ATTEMPTS,
+    CHAPTER_MAX_LENGTH,
+    CHAPTER_MIN_LENGTH,
+    CHAPTER_TARGET_LENGTH,
+    chapter_length_correction,
+    count_chapter_characters,
+    is_chapter_length_valid,
+)
 
 
 class ContinuationChapterWriter(BaseAgent):
@@ -26,12 +35,21 @@ class ContinuationChapterWriter(BaseAgent):
         
         # 生成续写章节内容
         chapter_content = self._write_continuation_chapter(storyline, knowledge_base, user_requirements)
+
+        if not is_chapter_length_valid(chapter_content.get("content", "")):
+            actual_count = count_chapter_characters(chapter_content.get("content", ""))
+            return {
+                "error": (
+                    f"续写正文经过{CHAPTER_GENERATION_ATTEMPTS}次生成仍为{actual_count}字，"
+                    f"未达到{CHAPTER_MIN_LENGTH}-{CHAPTER_MAX_LENGTH}字要求"
+                )
+            }
         
         return {
             "success": True,
             "status": "success",
             "chapter_content": chapter_content,
-            "word_count": len(chapter_content.get("content", "")),
+            "word_count": count_chapter_characters(chapter_content.get("content", "")),
             "writing_quality": self._assess_writing_quality(chapter_content)
         }
     
@@ -137,9 +155,9 @@ class ContinuationChapterWriter(BaseAgent):
             4. 保持原文的写作风格和基调
             5. 设置适当的伏笔和悬念
             6. 语言生动，描写细腻
-            7. 小说正文字数必须大于5000字，目标在5000-8000字之间，务必写满
+            7. 正文必须严格控制在{CHAPTER_MIN_LENGTH}-{CHAPTER_MAX_LENGTH}字，目标约{CHAPTER_TARGET_LENGTH}字；字数仅计算正文，不含标题、概要等JSON字段
             8. 确保情节逻辑自洽
-            9. 用你最大的输出能力进行输出
+            9. 字数约束优先级最高，不得为了补充描写突破上限
             {arc_writing_instruction}
             {ending_instruction}
             {milestone_instruction}
@@ -162,13 +180,21 @@ class ContinuationChapterWriter(BaseAgent):
                 {"role": "user", "content": prompt}
             ]
             
-            # 续写章节写作需要更多token空间，使用最大限制
-            response = self.call_llm(messages, max_tokens=config.CHAPTER_MAX_TOKENS)
-            result = self.parse_json_response(response)
-            
-            # 验证和补充结果
-            validated_result = self._validate_chapter_content(result, storyline)
-            self.log(f"章节内容验证完成，内容长度: {len(validated_result.get('content', ''))}")
+            validated_result = {}
+            for attempt in range(CHAPTER_GENERATION_ATTEMPTS):
+                response = self.call_llm(messages, max_tokens=config.CHAPTER_MAX_TOKENS)
+                result = self.parse_json_response(response)
+                validated_result = self._validate_chapter_content(result, storyline)
+                actual_count = count_chapter_characters(validated_result.get("content", ""))
+                self.log(f"章节内容验证完成，正文长度: {actual_count}")
+                if is_chapter_length_valid(validated_result.get("content", "")):
+                    return validated_result
+                if attempt < CHAPTER_GENERATION_ATTEMPTS - 1:
+                    messages = messages + [
+                        {"role": "assistant", "content": response},
+                        {"role": "user", "content": chapter_length_correction(actual_count)},
+                    ]
+
             return validated_result
             
         except Exception as e:
@@ -207,15 +233,7 @@ class ContinuationChapterWriter(BaseAgent):
         if not content.get("foreshadowing") or len(content["foreshadowing"]) == 0:
             content["foreshadowing"] = ["伏笔设置待分析"]
         
-        # 确保包含字数统计
-        if 'word_count' not in content:
-            chapter_content = content.get('content', '')
-            if chapter_content:
-                # 计算实际字数（去除空白字符）
-                clean_content = chapter_content.replace(' ', '').replace('\n', '').replace('\r', '').replace('\t', '').replace('\u3000', '')
-                content['word_count'] = len(clean_content)
-            else:
-                content['word_count'] = 0
+        content['word_count'] = count_chapter_characters(content.get('content', ''))
         
         # 确保包含创建时间
         if 'created_at' not in content:
@@ -246,7 +264,7 @@ class ContinuationChapterWriter(BaseAgent):
         content = chapter_content.get("content", "")
         
         # 简单的质量评估指标
-        word_count = len(content)
+        word_count = count_chapter_characters(content)
         sentence_count = content.count('。') + content.count('！') + content.count('？')
         avg_sentence_length = word_count / sentence_count if sentence_count > 0 else 0
         
@@ -260,9 +278,9 @@ class ContinuationChapterWriter(BaseAgent):
         has_action = any(word in content for word in ['走', '跑', '看', '听', '说', '想', '做'])
         
         quality_score = 0
-        if 5000 <= word_count <= 8000:
+        if CHAPTER_MIN_LENGTH <= word_count <= CHAPTER_MAX_LENGTH:
             quality_score += 30
-        elif 4000 <= word_count < 5000:
+        elif 2500 <= word_count <= 3500:
             quality_score += 15
         
         if 10 <= avg_sentence_length <= 30:

@@ -62,6 +62,12 @@ from data_manager import DataManager
 from workflow_context import WorkflowContext
 import config
 from core.chapter_content import extract_chapter_text
+from core.chapter_length import (
+    CHAPTER_MAX_LENGTH,
+    CHAPTER_MIN_LENGTH,
+    count_chapter_characters,
+    is_chapter_length_valid,
+)
 from core.golden_opening import (
     GOLDEN_OPENING_CHAPTERS,
     golden_chapter_requirements,
@@ -575,6 +581,9 @@ class InkAIWorkflowOptimized:
         })
         
         result = self.chapter_writer.process(input_data)
+
+        if "error" in result:
+            return result
         
         # 质量评估
         quality_input = self.context.get_agent_input_data("quality_assessor", {
@@ -1406,6 +1415,15 @@ class InkAIWorkflowOptimized:
         # 提取纯文本内容
         raw_content = chapter_content.get("content", "")
         clean_content = self._extract_clean_content(raw_content)
+        word_count = count_chapter_characters(clean_content)
+        if not is_chapter_length_valid(clean_content):
+            return {
+                "success": False,
+                "error": (
+                    f"章节正文为{word_count}字，不符合"
+                    f"{CHAPTER_MIN_LENGTH}-{CHAPTER_MAX_LENGTH}字要求，请重新生成"
+                ),
+            }
         
         # 保存章节（包含所有字段）
         # 从故事线中提取 scene_continuity，用于跨章场景追踪
@@ -1423,7 +1441,7 @@ class InkAIWorkflowOptimized:
             "scene_setting": storyline.get("scene_setting", {}),
             "scene_continuity": storyline.get("scene_continuity", {}),
             "created_at": datetime.now().isoformat(),
-            "word_count": len(clean_content)
+            "word_count": word_count
         }
         
         success = self.data_manager.save_chapter(self.context.novel_id, current_chapter_number, chapter_data)
@@ -1433,11 +1451,6 @@ class InkAIWorkflowOptimized:
             _nid_save = novel_id or (self.context.novel_id if self.context else None)
             if _nid_save:
                 self.data_manager.update_arc_progress(_nid_save)
-
-            # 验证章节字数
-            word_count = len(clean_content)
-            MIN_WORD_COUNT = 5000
-
 
             # 清除相关缓存，避免状态检测错误
             if "next_chapter_storyline" in self.context._cache:
@@ -1477,27 +1490,14 @@ class InkAIWorkflowOptimized:
             self.context.set_current_step("chapter_completed")
             self.save_context()  # 保存上下文以清除缓存
             
-            # 检查字数并返回相应的状态
-            if word_count < MIN_WORD_COUNT:
-                print(f"⚠️ 警告：章节字数({word_count})少于推荐值({MIN_WORD_COUNT})")
-                return {
-                    "success": True,
-                    "status": "warning",
-                    "chapter_number": current_chapter_number,
-                    "chapter_title": chapter_data["title"],
-                    "word_count": word_count,
-                    "message": f"章节保存成功，但字数({word_count})偏少，建议重新生成",
-                    "warning": f"章节字数({word_count})少于推荐值({MIN_WORD_COUNT})"
-                }
-            else:
-                return {
-                    "success": True,
-                    "status": "success",
-                    "chapter_number": current_chapter_number,
-                    "chapter_title": chapter_data["title"],
-                    "word_count": word_count,
-                    "message": "章节保存成功"
-                }
+            return {
+                "success": True,
+                "status": "success",
+                "chapter_number": current_chapter_number,
+                "chapter_title": chapter_data["title"],
+                "word_count": word_count,
+                "message": "章节保存成功"
+            }
         else:
             return {"error": "章节保存失败"}
 

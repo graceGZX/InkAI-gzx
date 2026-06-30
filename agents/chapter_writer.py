@@ -7,6 +7,15 @@ from base_agent import BaseAgent
 from typing import Dict, List, Any
 import config
 from core.chapter_content import extract_chapter_text
+from core.chapter_length import (
+    CHAPTER_GENERATION_ATTEMPTS,
+    CHAPTER_MAX_LENGTH,
+    CHAPTER_MIN_LENGTH,
+    CHAPTER_TARGET_LENGTH,
+    chapter_length_correction,
+    count_chapter_characters,
+    is_chapter_length_valid,
+)
 
 
 class ChapterWriterAgent(BaseAgent):
@@ -25,10 +34,19 @@ class ChapterWriterAgent(BaseAgent):
         
         # 生成章节内容
         chapter_content = self._write_chapter(chapter_info, characters, storyline, tags, user_requirements)
+
+        if not is_chapter_length_valid(chapter_content.get("content", "")):
+            actual_count = count_chapter_characters(chapter_content.get("content", ""))
+            return {
+                "error": (
+                    f"章节正文经过{CHAPTER_GENERATION_ATTEMPTS}次生成仍为{actual_count}字，"
+                    f"未达到{CHAPTER_MIN_LENGTH}-{CHAPTER_MAX_LENGTH}字要求"
+                )
+            }
         
         return {
             "chapter_content": chapter_content,
-            "word_count": len(chapter_content.get("content", "")),
+            "word_count": count_chapter_characters(chapter_content.get("content", "")),
             "writing_quality": self._assess_writing_quality(chapter_content)
         }
     
@@ -65,9 +83,9 @@ class ChapterWriterAgent(BaseAgent):
         3. 推进故事情节发展
         4. 设置适当的伏笔和悬念
         5. 语言生动，描写细腻
-        6. 小说正文字数必须大于3000字且在3000-5000字之间
+        6. 正文必须严格控制在{CHAPTER_MIN_LENGTH}-{CHAPTER_MAX_LENGTH}字，目标约{CHAPTER_TARGET_LENGTH}字；字数仅计算正文，不含标题、概要等JSON字段
         7. 严格完成本章的黄金开篇任务，并与上一章自然衔接
-        8. 用你最大的输出能力进行输出
+        8. 字数约束优先级最高，不得为了补充描写突破上限
 
         
         请返回JSON格式：
@@ -87,11 +105,20 @@ class ChapterWriterAgent(BaseAgent):
             {"role": "user", "content": prompt}
         ]
         
-        # 章节写作需要更多token空间，使用最大限制
-        response = self.call_llm(messages, max_tokens=config.CHAPTER_MAX_TOKENS)
-        result = self.parse_json_response(response)
-        
-        return self._validate_chapter_content(result)
+        result = {}
+        for attempt in range(CHAPTER_GENERATION_ATTEMPTS):
+            response = self.call_llm(messages, max_tokens=config.CHAPTER_MAX_TOKENS)
+            result = self._validate_chapter_content(self.parse_json_response(response))
+            actual_count = count_chapter_characters(result.get("content", ""))
+            if is_chapter_length_valid(result.get("content", "")):
+                return result
+            if attempt < CHAPTER_GENERATION_ATTEMPTS - 1:
+                messages = messages + [
+                    {"role": "assistant", "content": response},
+                    {"role": "user", "content": chapter_length_correction(actual_count)},
+                ]
+
+        return result
     
     
     def _assess_writing_quality(self, chapter_content: Dict[str, Any]) -> Dict[str, Any]:
@@ -99,7 +126,7 @@ class ChapterWriterAgent(BaseAgent):
         content = chapter_content.get("content", "")
         
         # 简单的质量评估指标
-        word_count = len(content)
+        word_count = count_chapter_characters(content)
         sentence_count = content.count('。') + content.count('！') + content.count('？')
         avg_sentence_length = word_count / sentence_count if sentence_count > 0 else 0
         
@@ -110,9 +137,9 @@ class ChapterWriterAgent(BaseAgent):
         has_description = any(word in content for word in ['的', '地', '得', '着', '了', '过'])
         
         quality_score = 0
-        if 2000 <= word_count <= 3000:
+        if CHAPTER_MIN_LENGTH <= word_count <= CHAPTER_MAX_LENGTH:
             quality_score += 30
-        elif 1500 <= word_count <= 4000:
+        elif 2500 <= word_count <= 3500:
             quality_score += 20
         
         if 10 <= avg_sentence_length <= 30:
@@ -231,15 +258,7 @@ class ChapterWriterAgent(BaseAgent):
                 else:
                     content[field] = "待补充"
         
-        # 确保包含字数统计
-        if 'word_count' not in content:
-            chapter_content = content.get('content', '')
-            if chapter_content:
-                # 计算实际字数（去除空白字符）
-                clean_content = chapter_content.replace(' ', '').replace('\n', '').replace('\r', '').replace('\t', '').replace('\u3000', '')
-                content['word_count'] = len(clean_content)
-            else:
-                content['word_count'] = 0
+        content['word_count'] = count_chapter_characters(content.get('content', ''))
         
         # 确保包含创建时间
         if 'created_at' not in content:
