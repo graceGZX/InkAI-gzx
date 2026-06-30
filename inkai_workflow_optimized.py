@@ -62,6 +62,7 @@ from data_manager import DataManager
 from workflow_context import WorkflowContext
 import config
 from core.chapter_content import extract_chapter_text
+from core.continuation_blueprint import ContinuationBlueprintManager, format_blueprint_context
 from core.chapter_length import (
     CHAPTER_MAX_LENGTH,
     CHAPTER_MIN_LENGTH,
@@ -113,6 +114,7 @@ class InkAIWorkflowOptimized:
         self.continuation_long_term_consistency_improver = ContinuationLongTermConsistencyImprover()
         
         self.data_manager = DataManager()
+        self.continuation_blueprints = ContinuationBlueprintManager(self.data_manager)
 
         # 初始化向量嵌入服务
         from core.embedding_service import EmbeddingService
@@ -574,6 +576,11 @@ class InkAIWorkflowOptimized:
             )
         else:
             chapter_info["previous_chapter_context"] = "无（本章是全书开篇）"
+        blueprint_context = (
+            self.continuation_blueprints.context_for_chapter(self.context.novel_id, chapter_number)
+            if hasattr(self, "continuation_blueprints") else None
+        )
+        chapter_info["continuation_blueprint"] = format_blueprint_context(blueprint_context)
 
         # 使用统一的输入数据生成
         input_data = self.context.get_agent_input_data("chapter_writer", {
@@ -741,11 +748,17 @@ class InkAIWorkflowOptimized:
 
         # 弧触发检查：无活跃弧或弧快结束时，先规划新弧，返回草案让用户确认
         _novel_id = novel_id or (self.context.novel_id if self.context else None)
+        _saved_chapters = self.data_manager.get_novel_chapters(_novel_id) if _novel_id else []
+        _blueprint_context = (
+            self.continuation_blueprints.context_for_chapter(_novel_id, len(_saved_chapters) + 1)
+            if _novel_id else None
+        )
         if _novel_id and self._check_arc_trigger(_novel_id):
             _kb_orig = self.context.continuation_data.get("knowledge_base", {})
-            chapters = self.data_manager.get_novel_chapters(_novel_id)
             kb = dict(_kb_orig)
-            kb["current_chapter_number"] = len(chapters) + 1
+            kb["current_chapter_number"] = len(_saved_chapters) + 1
+            if _blueprint_context:
+                kb["continuation_blueprint"] = _blueprint_context
             planner = ContinuationArcPlanner()
             plan_result = planner.process({"knowledge_base": kb})
             if plan_result.get("success"):
@@ -757,6 +770,8 @@ class InkAIWorkflowOptimized:
 
         # 向量语义检索：找到与当前剧情方向最相关的前N章
         kb = self.context.continuation_data["knowledge_base"]
+        if _blueprint_context:
+            kb["continuation_blueprint"] = _blueprint_context
         if self.embedding_service.is_available:
             try:
                 # 构建查询：用最近章节的摘要 + 剧情方向做语义检索
@@ -1875,6 +1890,13 @@ class InkAIWorkflowOptimized:
         active_arc = self.data_manager.load_active_arc(novel_id)
         if active_arc:
             continuation_state["active_arc"] = active_arc
+
+        blueprint_context = self.continuation_blueprints.context_for_chapter(
+            novel_id,
+            len(saved_chapters) + 1,
+        )
+        if blueprint_context:
+            continuation_state["continuation_blueprint"] = blueprint_context
 
         return {
             "novel_id": self.context.novel_id,

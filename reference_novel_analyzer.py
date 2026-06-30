@@ -188,7 +188,16 @@ class ReferenceNovelAnalyzer:
   "optimized_arc":"优化后的原创故事弧模板",
   "retain":["保留的结构优势"],
   "replace":[{{"outdated":"待替换模式","replacement":"流行且原创的替换方式"}}],
-  "optimized_units":["按原细纲单元顺序给出优化方向"],
+  "optimized_units":[{{
+    "chapter_range":"对应原细纲范围，如1-8",
+    "title":"单元标题",
+    "goal":"本单元必须完成的剧情目标",
+    "conflict":"核心冲突与升级方式",
+    "character_milestone":"人物里程碑",
+    "worldbuilding":"本单元展示的世界规则或地图",
+    "hook":"单元末钩子",
+    "avoid":"必须替换或避免的旧模式"
+  }}],
   "climax":"卷末高潮设计",
   "ending_hook":"下一卷钩子"
 }}

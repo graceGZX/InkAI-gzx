@@ -6,6 +6,7 @@
 from base_agent import BaseAgent
 from typing import Dict, List, Any, Optional
 import config
+from core.continuation_blueprint import format_blueprint_context
 
 
 class ContinuationStorylineGenerator(BaseAgent):
@@ -49,6 +50,7 @@ class ContinuationStorylineGenerator(BaseAgent):
             tags = knowledge_base.get("tags", {})
             active_arc = knowledge_base.get("active_arc")
             current_arc_role = knowledge_base.get("current_arc_role", {})
+            blueprint_context = format_blueprint_context(knowledge_base.get("continuation_blueprint"))
 
             # 确定下一章号
             next_chapter_number = len(chapters) + 1
@@ -112,6 +114,9 @@ class ContinuationStorylineGenerator(BaseAgent):
 
             11. 用户续写需求：{user_requirements if user_requirements else "无特殊要求"}
 
+            12. 已绑定的整书/卷/细纲蓝图（优先级高于临时发挥）：
+            {blueprint_context}
+
             {arc_context_section}
             请生成第{next_chapter_number}章的详细故事线，要求：
             1. scene_setting 中的 time/location 必须与上一章结尾的场景/时间自然衔接，不得跳转
@@ -121,6 +126,7 @@ class ContinuationStorylineGenerator(BaseAgent):
             5. 设置适当的伏笔和悬念
             6. 保持故事节奏和基调
             7. 为后续章节发展留下空间
+            8. 如已绑定蓝图，本章必须推进当前单元目标；不得复用蓝图标明的禁用模式或突破原创红线
 
             ## 场景连续性规则（重要）
 

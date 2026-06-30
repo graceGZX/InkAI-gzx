@@ -7,6 +7,7 @@ from base_agent import BaseAgent
 from typing import Dict, List, Any, Optional
 import config
 from core.chapter_content import extract_chapter_text
+from core.continuation_blueprint import format_blueprint_context
 from core.chapter_length import (
     CHAPTER_GENERATION_ATTEMPTS,
     CHAPTER_MAX_LENGTH,
@@ -67,6 +68,7 @@ class ContinuationChapterWriter(BaseAgent):
             last_chapter = knowledge_base.get("last_chapter_summary", {})
             recent_chapters = knowledge_base.get("recent_chapters_summaries", [])
             vector_chapters = knowledge_base.get("vector_retrieved_chapters", [])
+            blueprint_context = format_blueprint_context(knowledge_base.get("continuation_blueprint"))
 
             # 读取弧感知字段
             arc_context = storyline.get("arc_context", {})
@@ -133,6 +135,9 @@ class ContinuationChapterWriter(BaseAgent):
 
             12. 用户要求：{user_requirements if user_requirements else "无特殊要求"}
 
+            13. 已绑定的整书/卷/细纲蓝图（必须落实到正文）：
+            {blueprint_context}
+
             写作要求：
             1. 【场景衔接】根据 scene_continuity 决定本章开头方式：
 
@@ -158,6 +163,7 @@ class ContinuationChapterWriter(BaseAgent):
             7. 正文必须严格控制在{CHAPTER_MIN_LENGTH}-{CHAPTER_MAX_LENGTH}字，目标约{CHAPTER_TARGET_LENGTH}字；字数仅计算正文，不含标题、概要等JSON字段
             8. 确保情节逻辑自洽
             9. 字数约束优先级最高，不得为了补充描写突破上限
+            10. 如已绑定蓝图，正文必须完成当前单元分配给本章的推进，不得触碰禁用模式和原创红线
             {arc_writing_instruction}
             {ending_instruction}
             {milestone_instruction}

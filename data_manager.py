@@ -103,6 +103,47 @@ class DataManager:
         """加载当前活跃故事弧计划，不存在时返回 None"""
         return self.load_novel_data(novel_id, "active_arc")
 
+    def clear_active_arc(self, novel_id: str) -> bool:
+        """清除未完成的故事弧，让新的长期蓝图从下一章接管规划。"""
+        try:
+            arc_file = os.path.join(self.novels_dir, novel_id, "active_arc.json")
+            if os.path.exists(arc_file):
+                os.remove(arc_file)
+            return True
+        except Exception as exc:
+            print(f"清除故事弧失败: {exc}")
+            return False
+
+    def save_continuation_blueprint(self, novel_id: str, blueprint: Dict[str, Any]) -> bool:
+        """保存续写蓝图，元数据只记录轻量索引。"""
+        try:
+            novel_dir = os.path.join(self.novels_dir, novel_id)
+            if not os.path.isdir(novel_dir):
+                return False
+            blueprint_file = os.path.join(novel_dir, "continuation_blueprint.json")
+            temp_file = blueprint_file + ".tmp"
+            with open(temp_file, "w", encoding="utf-8") as file:
+                json.dump(blueprint, file, ensure_ascii=False, indent=2)
+            os.replace(temp_file, blueprint_file)
+            metadata = self._load_novel_metadata(novel_id)
+            if metadata is not None:
+                metadata["continuation_blueprint"] = {
+                    "analysis_id": blueprint.get("analysis_id", ""),
+                    "reference_title": blueprint.get("reference_title", ""),
+                    "start_chapter": blueprint.get("start_chapter", 1),
+                    "end_chapter": blueprint.get("end_chapter", 0),
+                }
+                metadata["updated_at"] = datetime.now().isoformat()
+                with open(os.path.join(novel_dir, "metadata.json"), "w", encoding="utf-8") as file:
+                    json.dump(metadata, file, ensure_ascii=False, indent=2)
+            return True
+        except Exception as exc:
+            print(f"保存续写蓝图失败: {exc}")
+            return False
+
+    def load_continuation_blueprint(self, novel_id: str) -> Optional[Dict[str, Any]]:
+        return self.load_novel_data(novel_id, "continuation_blueprint")
+
     def update_arc_progress(self, novel_id: str) -> bool:
         """章节写完后递减 chapters_remaining；归零时删除弧文件"""
         arc = self.load_active_arc(novel_id)

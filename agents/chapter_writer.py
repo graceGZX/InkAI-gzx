@@ -172,6 +172,7 @@ class ChapterWriterAgent(BaseAgent):
         章次: 第{chapter_info.get('chapter_number', 1)}章
         黄金开篇任务: {chapter_info.get('golden_requirements', '')}
         前情承接: {chapter_info.get('previous_chapter_context', '')}
+        已绑定的整书/卷/细纲蓝图: {chapter_info.get('continuation_blueprint', '未绑定')}
         """
     
     def _format_character_info(self, character: Dict[str, Any]) -> str:

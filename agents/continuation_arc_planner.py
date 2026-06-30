@@ -6,6 +6,7 @@
 from base_agent import BaseAgent
 from typing import Dict, Any
 import uuid
+from core.continuation_blueprint import format_blueprint_context
 
 
 class ContinuationArcPlanner(BaseAgent):
@@ -31,6 +32,7 @@ class ContinuationArcPlanner(BaseAgent):
         recent_chapters = kb.get("recent_chapters_summaries", [])
         current_chapter_number = kb.get("current_chapter_number", 1)
         tags = kb.get("tags", {})
+        blueprint_context = format_blueprint_context(kb.get("continuation_blueprint"))
 
         main_char = character_profiles.get("main_character", {})
         main_name = main_char.get("basic_info", {}).get("name", "主角")
@@ -66,7 +68,11 @@ class ContinuationArcPlanner(BaseAgent):
 【上一章结尾】
 {last_chapter.get('summary', '无')[:200]}
 
+【已绑定的整书/卷/细纲蓝图】
+{blueprint_context}
+
 【要求】
+- 如已绑定蓝图，当前故事弧必须服务蓝图中的当前单元目标，不得偏离当前卷故事弧和原创红线
 - 弧章数范围 3-8 章，根据故事需要自然决定
 - 每章分配一个 role（arc_open / arc_mid / arc_climax / arc_close）和 ending_type（cliffhanger / hook / pause / resolution）
 - arc_open 用 hook，arc_mid 用 cliffhanger，arc_climax 用 cliffhanger 或 pause，arc_close 用 resolution

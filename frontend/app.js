@@ -13,7 +13,8 @@ const AppState = {
     continuationData: null,
     referenceAnalysisId: null,
     referencePollTimer: null,
-    referenceDeepResult: null
+    referenceDeepResult: null,
+    pendingReferenceAnalysisId: null
 };
 
 console.log('AppState 初始化完成:', AppState);
@@ -492,11 +493,50 @@ const ReferenceNovelManager = {
                     <h5>每 5–10 章细纲</h5>
                     <div class="table-responsive"><table class="table table-striped"><thead><tr><th>章节</th><th>单元</th><th>剧情因果链</th></tr></thead><tbody>${fineHtml}</tbody></table></div>
                 </section>
-                <button class="btn btn-primary" onclick="applyReferenceOutlineToCreation()">
-                    <i class="fas fa-pen-nib me-2"></i>采用此结构创建新小说
-                </button>
+                <div class="d-flex flex-wrap gap-2 align-items-end">
+                    <button class="btn btn-primary" onclick="applyReferenceOutlineToCreation()">
+                        <i class="fas fa-pen-nib me-2"></i>采用此结构创建新小说
+                    </button>
+                    <div class="flex-grow-1" style="min-width:240px">
+                        <label for="reference-target-novel" class="form-label mb-1">绑定已有小说续写</label>
+                        <select class="form-select" id="reference-target-novel"><option value="">正在加载小说...</option></select>
+                    </div>
+                    <button class="btn btn-success" onclick="attachReferenceOutlineToExistingNovel()">
+                        <i class="fas fa-link me-2"></i>绑定续写蓝图
+                    </button>
+                </div>
             </div>
         `;
+        ReferenceNovelManager.loadNovelTargets();
+    },
+
+    loadNovelTargets: async () => {
+        const select = document.getElementById('reference-target-novel');
+        if (!select) return;
+        try {
+            const response = await Utils.apiRequest('/novels');
+            const novels = response.data || [];
+            select.innerHTML = '<option value="">请选择小说</option>' + novels.map(novel =>
+                `<option value="${Utils.escapeHtml(novel.novel_id)}">${Utils.escapeHtml(novel.title || '未命名小说')}（${Number(novel.chapter_count || (novel.chapters || []).length || 0)}章）</option>`
+            ).join('');
+        } catch (error) {
+            select.innerHTML = '<option value="">小说列表加载失败</option>';
+        }
+    },
+
+    attachToExistingNovel: async () => {
+        const select = document.getElementById('reference-target-novel');
+        const novelId = select && select.value;
+        if (!novelId || !AppState.referenceAnalysisId) {
+            Utils.showMessage('请选择要绑定的小说', 'warning');
+            return;
+        }
+        try {
+            const response = await Utils.apiRequest(`/reference-novels/${AppState.referenceAnalysisId}/attach/${novelId}`, {method: 'POST'});
+            Utils.showMessage(`续写蓝图已绑定，将从第${response.data.start_chapter}章开始执行`, 'success');
+        } catch (error) {
+            Utils.showMessage('绑定续写蓝图失败: ' + error.message, 'danger');
+        }
     },
 
     applyToCreation: () => {
@@ -520,8 +560,9 @@ const ReferenceNovelManager = {
         ].join('\n');
         document.getElementById('novel-requirements').value = requirements.slice(0, 5000);
         document.getElementById('requirements-count').textContent = Math.min(requirements.length, 5000);
+        AppState.pendingReferenceAnalysisId = AppState.referenceAnalysisId;
         Navigation.showCreateNovel();
-        Utils.showMessage('已带入抽象结构，请继续确认题材、人物和世界观', 'success');
+        Utils.showMessage('已带入抽象结构；项目创建后会自动绑定续写蓝图', 'success');
     },
 
     reset: () => {
@@ -529,6 +570,7 @@ const ReferenceNovelManager = {
         AppState.referencePollTimer = null;
         AppState.referenceAnalysisId = null;
         AppState.referenceDeepResult = null;
+        AppState.pendingReferenceAnalysisId = null;
         document.getElementById('reference-novel-form').reset();
         ['reference-report-container', 'reference-deep-progress', 'reference-deep-result'].forEach(id => {
             const element = document.getElementById(id);
@@ -556,6 +598,19 @@ const NovelManager = {
             if (response.success) {
                 Utils.showMessage('小说项目创建成功！', 'success');
                 AppState.currentNovelId = response.data.novel_id;
+
+                if (AppState.pendingReferenceAnalysisId) {
+                    try {
+                        await Utils.apiRequest(
+                            `/reference-novels/${AppState.pendingReferenceAnalysisId}/attach/${response.data.novel_id}`,
+                            {method: 'POST'}
+                        );
+                        AppState.pendingReferenceAnalysisId = null;
+                        Utils.showMessage('参考大纲已绑定到新小说', 'success');
+                    } catch (attachError) {
+                        Utils.showMessage('小说已创建，但续写蓝图绑定失败: ' + attachError.message, 'warning');
+                    }
+                }
                 
                 // 自动选择标签
                 await NovelManager.selectTags(response.data.novel_id);
@@ -1466,6 +1521,19 @@ const wasStepExecuted = (stepKey, currentStep) => {
 
 const displayContinuationWorkflow = (continuationData) => {
     const container = document.getElementById('continuation-container');
+    const blueprint = continuationData.continuation_state?.continuation_blueprint;
+    const blueprintVolume = blueprint?.current_volume || {};
+    const blueprintUnit = blueprint?.current_unit || {};
+    const blueprintHtml = blueprint ? `
+        <div class="alert alert-primary mt-3 mb-0">
+            <div class="d-flex flex-wrap justify-content-between gap-2">
+                <strong><i class="fas fa-map me-2"></i>续写蓝图：${Utils.escapeHtml(blueprintVolume.title || (blueprint.status === 'exhausted' ? '蓝图已执行完' : '待开始'))}</strong>
+                <span>${Utils.escapeHtml(blueprintUnit.target_chapter_range || blueprint.blueprint_range || '')}</span>
+            </div>
+            ${blueprintUnit.goal ? `<div class="mt-2"><strong>当前单元目标：</strong>${Utils.escapeHtml(blueprintUnit.goal)}</div>` : ''}
+            ${blueprintUnit.character_milestone ? `<div><strong>人物里程碑：</strong>${Utils.escapeHtml(blueprintUnit.character_milestone)}</div>` : ''}
+        </div>
+    ` : '';
     
     // 增强的小说信息展示
     const novelInfoHtml = `
@@ -1500,6 +1568,7 @@ const displayContinuationWorkflow = (continuationData) => {
                                     </small>
                                 </div>
                             ` : ''}
+                            ${blueprintHtml}
                         </div>
                         <div class="col-md-4 text-end">
                             ${continuationData.current_step === 'chapter_completed' ? `
@@ -3348,6 +3417,7 @@ window.showReferenceNovelAnalysis = Navigation.showReferenceNovelAnalysis;
 window.startReferenceDeepExtraction = ReferenceNovelManager.startDeepExtraction;
 window.resetReferenceNovelAnalysis = ReferenceNovelManager.reset;
 window.applyReferenceOutlineToCreation = ReferenceNovelManager.applyToCreation;
+window.attachReferenceOutlineToExistingNovel = ReferenceNovelManager.attachToExistingNovel;
 
 // 重置小说选择
 window.resetNovelSelection = () => {

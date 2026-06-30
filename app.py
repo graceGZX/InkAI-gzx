@@ -22,6 +22,7 @@ from quick_continuation_executor import get_executor, QuickContinuationProgress
 from base_agent import BaseAgent
 from concept_advisor import ConceptAdvisor, fetch_market_snapshot
 from core.golden_opening import is_golden_opening_complete
+from core.continuation_blueprint import ContinuationBlueprintManager
 from reference_novel_analyzer import ReferenceNovelAnalyzer
 from reference_novel_service import ReferenceNovelService
 
@@ -44,11 +45,6 @@ def _call_reference_llm(messages):
     return agent.call_llm(messages, temperature=0.25, max_tokens=8000)
 
 
-reference_novel_service = ReferenceNovelService(
-    os.path.join(config.DATA_DIR, "reference_analyses"),
-    ReferenceNovelAnalyzer(llm=_call_reference_llm),
-)
-
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 CORS(app)  # 允许跨域请求
@@ -60,6 +56,11 @@ def reference_upload_too_large(error):
 
 # 全局工作流程实例
 workflow = InkAIWorkflow()
+reference_novel_service = ReferenceNovelService(
+    os.path.join(config.DATA_DIR, "reference_analyses"),
+    ReferenceNovelAnalyzer(llm=_call_reference_llm),
+    ContinuationBlueprintManager(workflow.data_manager),
+)
 
 # 静态文件路由
 @app.route('/debug_frontend.html')
@@ -307,6 +308,25 @@ def start_reference_novel_deep_extraction(analysis_id):
         return jsonify({"success": False, "error": str(exc)}), status
     except Exception as exc:
         return jsonify({"success": False, "error": f"启动深度提取失败: {exc}"}), 500
+
+
+@app.route('/api/reference-novels/<analysis_id>/attach/<novel_id>', methods=['POST'])
+def attach_reference_outline_to_novel(analysis_id, novel_id):
+    """把完成的分层大纲绑定为目标小说的续写蓝图。"""
+    try:
+        blueprint = reference_novel_service.attach_to_novel(analysis_id, novel_id)
+        return jsonify({"success": True, "data": blueprint})
+    except ValueError as exc:
+        status = 404 if "不存在" in str(exc) else 400
+        return jsonify({"success": False, "error": str(exc)}), status
+
+
+@app.route('/api/novels/<novel_id>/continuation-blueprint', methods=['GET'])
+def get_novel_continuation_blueprint(novel_id):
+    blueprint = workflow.data_manager.load_continuation_blueprint(novel_id)
+    if not blueprint:
+        return jsonify({"success": False, "error": "该小说尚未绑定续写蓝图"}), 404
+    return jsonify({"success": True, "data": blueprint})
 
 @app.route('/api/novels', methods=['GET'])
 def get_novels():
@@ -2675,6 +2695,12 @@ def arc_plan(novel_id):
         kb = dict(workflow.context.continuation_data.get("knowledge_base", {}))
         chapters = workflow.data_manager.get_novel_chapters(novel_id)
         kb["current_chapter_number"] = len(chapters) + 1
+        blueprint_context = workflow.continuation_blueprints.context_for_chapter(
+            novel_id,
+            len(chapters) + 1,
+        )
+        if blueprint_context:
+            kb["continuation_blueprint"] = blueprint_context
 
         planner = ContinuationArcPlanner()
         result = planner.process({"knowledge_base": kb})

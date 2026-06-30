@@ -16,10 +16,11 @@ ANALYSIS_ID_PATTERN = re.compile(r"^[0-9a-f-]{36}$")
 
 
 class ReferenceNovelService:
-    def __init__(self, root_dir: str, analyzer: ReferenceNovelAnalyzer) -> None:
+    def __init__(self, root_dir: str, analyzer: ReferenceNovelAnalyzer, blueprint_manager: Any = None) -> None:
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.analyzer = analyzer
+        self.blueprint_manager = blueprint_manager
         self._lock = threading.Lock()
         self._jobs: Dict[str, threading.Thread] = {}
         self._recover_interrupted_sessions()
@@ -100,6 +101,14 @@ class ReferenceNovelService:
         self._jobs[analysis_id] = thread
         thread.start()
         return started_state
+
+    def attach_to_novel(self, analysis_id: str, novel_id: str) -> Dict[str, Any]:
+        if not self.blueprint_manager:
+            raise ValueError("续写蓝图模块尚未初始化")
+        state = self.get_state(analysis_id)
+        if not state:
+            raise ValueError("分析任务不存在")
+        return self.blueprint_manager.attach(novel_id, state)
 
     def _run_deep_extraction(self, analysis_id: str) -> None:
         session_dir = self._session_dir(analysis_id)
