@@ -1,0 +1,59 @@
+agents/continuation_arc_planner.py
+  s_fda3bcd798bdeb::t_19994c8d093a96 75
+  s_fda3bcd798bdeb::t_3c74a6ebdd3855 9,35,71-73
+agents/continuation_storyline_generator.py
+  s_fda3bcd798bdeb::t_3c74a6ebdd3855 9,53,117-119
+  s_fda3bcd798bdeb::t_19994c8d093a96 129
+inkai_workflow_optimized.py
+  s_fda3bcd798bdeb::t_5e0edde27e0379 1894-1900
+  s_fda3bcd798bdeb::t_3c74a6ebdd3855 117,751-755,759-761,773-774
+  s_fda3bcd798bdeb::t_1c687cc4d250df 579-581
+  s_fda3bcd798bdeb::t_983b5745b7f50e 65,582-583
+agents/continuation_chapter_writer.py
+  s_fda3bcd798bdeb::t_19994c8d093a96 166
+  s_fda3bcd798bdeb::t_3c74a6ebdd3855 10,71,138-140
+app.py
+  s_fda3bcd798bdeb::t_eeb52d89e2ac73 25,59-63,312-329
+  s_fda3bcd798bdeb::t_983b5745b7f50e 2698-2703
+  s_fda3bcd798bdeb::t_88fd5495d4c0a6 330
+frontend/app.js
+  s_fda3bcd798bdeb::t_5e0edde27e0379 1524-1536,1571
+  s_fda3bcd798bdeb::t_19994c8d093a96 573
+  s_fda3bcd798bdeb::t_ec0ea8f04f9a34 16-17,496-507,510-539,563,565,601-613,3420
+core/continuation_blueprint.py
+  s_fda3bcd798bdeb::t_5252c0da725d81 76-77
+  s_fda3bcd798bdeb::t_def7290659f36c 132,134-137
+  s_fda3bcd798bdeb::t_9c15159bd310b5 1-10,39-75,78-131,133,138-192
+  s_fda3bcd798bdeb::t_3c74a6ebdd3855 11-38
+reference_novel_service.py
+  s_fda3bcd798bdeb::t_eeb52d89e2ac73 19,23,105-111
+  s_fda3bcd798bdeb::t_321c698f12c44e 112
+reference_novel_analyzer.py
+  s_fda3bcd798bdeb::t_eeb52d89e2ac73 191-200
+data_manager.py
+  s_fda3bcd798bdeb::t_9c15159bd310b5 117-146
+  s_fda3bcd798bdeb::t_5252c0da725d81 106-116
+tests/test_continuation_blueprint.py
+  s_fda3bcd798bdeb::t_c1e7d7b4bc77d5 2,4,81-128
+  s_fda3bcd798bdeb::t_25d40d8ac9ade3 1,3,5-80,129-132
+frontend/index.html
+  s_fda3bcd798bdeb::t_19994c8d093a96 393
+agents/chapter_writer.py
+  s_fda3bcd798bdeb::t_983b5745b7f50e 175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "9007cc16228575858951cab303b52ef9d9371855",
+  "prompts": {},
+  "sessions": {
+    "s_fda3bcd798bdeb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f166a-0bdc-7d81-9afb-d46a89471c04",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zixiao.gu <zixiao.gu@nio.com>"
+    }
+  }
+}
