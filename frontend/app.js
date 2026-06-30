@@ -10,7 +10,10 @@ const AppState = {
     currentNovelId: null,
     selectedNovelId: null,
     workflowData: null,
-    continuationData: null
+    continuationData: null,
+    referenceAnalysisId: null,
+    referencePollTimer: null,
+    referenceDeepResult: null
 };
 
 console.log('AppState 初始化完成:', AppState);
@@ -216,6 +219,10 @@ const Navigation = {
         console.log('loadContinuationNovelList 已调用');
     },
 
+    showReferenceNovelAnalysis: () => {
+        Navigation.showPage('reference-novel-page');
+    },
+
     showNovelList: () => {
         Navigation.showPage('novel-list-page');
         NovelManager.loadNovelList();
@@ -250,6 +257,284 @@ const Navigation = {
         AppState.currentNovelId = novelId;
         Navigation.showPage('quick-continuation-progress-page');
         QuickContinuationManager.loadProgress(novelId);
+    }
+};
+
+const ReferenceNovelManager = {
+    scoreLabels: {
+        market_appeal: '市场吸引力',
+        opening_hook: '开篇能力',
+        long_form_structure: '长篇结构',
+        characterization: '人物塑造',
+        payoff_design: '爽点兑现',
+        current_trend_fit: '当前趋势适配',
+        target_match: '目标方向匹配'
+    },
+
+    listHtml: (items) => {
+        const values = Array.isArray(items) ? items : [];
+        return values.length
+            ? `<ul class="mb-0">${values.map(item => `<li>${Utils.escapeHtml(String(item))}</li>`).join('')}</ul>`
+            : '<span class="text-muted">暂无</span>';
+    },
+
+    analyze: async () => {
+        const fileInput = document.getElementById('reference-novel-file');
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) {
+            Utils.showMessage('请选择小说 TXT 文件', 'warning');
+            return;
+        }
+        if (!file.name.toLowerCase().endsWith('.txt')) {
+            Utils.showMessage('只支持 TXT 小说文件', 'warning');
+            return;
+        }
+        if (file.size > 100 * 1024 * 1024) {
+            Utils.showMessage('TXT 文件不能超过 100MB', 'warning');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', document.getElementById('reference-novel-title').value.trim());
+        formData.append('target_direction', document.getElementById('reference-target-direction').value.trim());
+
+        try {
+            Utils.showLoading('正在抽样阅读并联网检索公开资料...');
+            const response = await fetch('/api/reference-novels/analyze', {
+                method: 'POST',
+                headers: {'Cache-Control': 'no-cache'},
+                body: formData
+            });
+            const payload = await response.json().catch(() => ({success: false, error: '服务器未返回有效结果'}));
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.error || '参考价值分析失败');
+            }
+            AppState.referenceAnalysisId = payload.data.analysis_id;
+            ReferenceNovelManager.renderReport(payload.data);
+            Utils.showMessage('参考价值报告已生成，请确认是否继续深度提取', 'success');
+        } catch (error) {
+            Utils.showMessage('参考小说分析失败: ' + error.message, 'danger');
+        } finally {
+            Utils.hideLoading();
+        }
+    },
+
+    renderReport: (state) => {
+        const report = state.report || {};
+        const profile = report.source_profile || {};
+        const acts = report.three_act_structure || {};
+        const verdictMap = {
+            recommended: {label: '推荐继续拆解', className: 'success'},
+            conditional: {label: '有条件参考', className: 'warning'},
+            not_recommended: {label: '不建议继续', className: 'danger'}
+        };
+        const verdict = verdictMap[report.verdict] || verdictMap.conditional;
+        const scores = report.scores || {};
+        const scoreRows = Object.entries(ReferenceNovelManager.scoreLabels).map(([key, label]) => `
+            <tr><td>${label}</td><td style="width:55%">
+                <div class="progress" style="height:20px">
+                    <div class="progress-bar" style="width:${Number(scores[key] || 0)}%">${Number(scores[key] || 0)}</div>
+                </div>
+            </td></tr>
+        `).join('');
+        const research = report.research || {};
+        const container = document.getElementById('reference-report-container');
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div class="border-top pt-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                    <div>
+                        <h4 class="mb-1">${Utils.escapeHtml(state.title || '参考小说')}</h4>
+                        <span class="text-muted">${profile.chapter_count || profile.section_count || 0} 个章节/片段 · ${Utils.formatWordCount(profile.character_count || 0)} 字</span>
+                    </div>
+                    <span class="badge bg-${verdict.className} fs-6">${verdict.label}</span>
+                </div>
+                <div class="alert alert-${verdict.className}">
+                    <strong>${verdict.label}：</strong>${Utils.escapeHtml(report.verdict_reason || '')}
+                    <div class="small mt-1">分析置信度 ${Math.round(Number(report.confidence || 0) * 100)}%，本轮为全书代表性抽样。</div>
+                </div>
+                <section class="py-3 border-bottom">
+                    <h5>整书主线</h5><p class="mb-0">${Utils.escapeHtml(report.summary || '')}</p>
+                </section>
+                <section class="py-3 border-bottom">
+                    <h5>三幕结构</h5>
+                    <div class="row g-3">
+                        <div class="col-md-4"><strong>第一幕</strong><p class="mb-0">${Utils.escapeHtml(acts.act1 || '')}</p></div>
+                        <div class="col-md-4"><strong>第二幕</strong><p class="mb-0">${Utils.escapeHtml(acts.act2 || '')}</p></div>
+                        <div class="col-md-4"><strong>第三幕</strong><p class="mb-0">${Utils.escapeHtml(acts.act3 || '')}</p></div>
+                    </div>
+                </section>
+                <section class="py-3 border-bottom">
+                    <div class="row g-4">
+                        <div class="col-md-6"><h5>主角成长</h5><p>${Utils.escapeHtml(report.protagonist_arc || '')}</p></div>
+                        <div class="col-md-6"><h5>世界观递进</h5><p>${Utils.escapeHtml(report.worldbuilding || '')}</p></div>
+                        <div class="col-md-6"><h5>值得参考</h5>${ReferenceNovelManager.listHtml(report.strengths)}</div>
+                        <div class="col-md-6"><h5>问题与风险</h5>${ReferenceNovelManager.listHtml(report.weaknesses)}</div>
+                        <div class="col-md-6"><h5>可复用结构</h5>${ReferenceNovelManager.listHtml(report.reusable_patterns)}</div>
+                        <div class="col-md-6"><h5>不建议借鉴</h5>${ReferenceNovelManager.listHtml(report.avoid_patterns)}</div>
+                    </div>
+                </section>
+                <section class="py-3 border-bottom">
+                    <h5>参考价值评分</h5>
+                    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><tbody>${scoreRows}</tbody></table></div>
+                </section>
+                <section class="py-3">
+                    <h5>联网资料</h5>
+                    ${ReferenceNovelManager.listHtml(research.highlights)}
+                    <div class="small text-muted mt-2">${Utils.escapeHtml((research.sources || []).join('、') || '本次未取得可靠公开资料')}</div>
+                </section>
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                    <button class="btn btn-success" onclick="startReferenceDeepExtraction()">
+                        <i class="fas fa-layer-group me-2"></i>继续深度提取
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="resetReferenceNovelAnalysis()">
+                        <i class="fas fa-file-arrow-up me-2"></i>更换参考小说
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    startDeepExtraction: async () => {
+        if (!AppState.referenceAnalysisId) return;
+        try {
+            const response = await Utils.apiRequest(`/reference-novels/${AppState.referenceAnalysisId}/deep-extract`, {method: 'POST'});
+            ReferenceNovelManager.renderProgress(response.data);
+            ReferenceNovelManager.schedulePoll();
+        } catch (error) {
+            Utils.showMessage('启动深度提取失败: ' + error.message, 'danger');
+        }
+    },
+
+    schedulePoll: () => {
+        if (AppState.referencePollTimer) clearTimeout(AppState.referencePollTimer);
+        AppState.referencePollTimer = setTimeout(ReferenceNovelManager.poll, 2000);
+    },
+
+    poll: async () => {
+        if (!AppState.referenceAnalysisId) return;
+        try {
+            const response = await Utils.apiRequest(`/reference-novels/${AppState.referenceAnalysisId}`);
+            ReferenceNovelManager.renderProgress(response.data);
+            if (response.data.status === 'completed') {
+                ReferenceNovelManager.renderDeepResult(response.data.deep_extraction.result || {});
+                Utils.showMessage('深度拆解与大纲优化完成', 'success');
+            } else if (response.data.status === 'failed') {
+                Utils.showMessage('深度提取失败: ' + (response.data.deep_extraction?.error || '未知错误'), 'danger');
+            } else {
+                ReferenceNovelManager.schedulePoll();
+            }
+        } catch (error) {
+            Utils.showMessage('读取深度提取进度失败: ' + error.message, 'warning');
+            ReferenceNovelManager.schedulePoll();
+        }
+    },
+
+    renderProgress: (state) => {
+        const extraction = state.deep_extraction || {};
+        const progress = Number(extraction.progress || 0);
+        const container = document.getElementById('reference-deep-progress');
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div class="border-top pt-4">
+                <div class="d-flex justify-content-between mb-2"><strong>深度提取进度</strong><span>${progress}%</span></div>
+                <div class="progress" style="height:24px"><div class="progress-bar bg-success progress-bar-striped progress-bar-animated" style="width:${progress}%"></div></div>
+                <p class="text-muted mt-2 mb-0">${Utils.escapeHtml(extraction.message || '准备中')}</p>
+            </div>
+        `;
+    },
+
+    renderDeepResult: (result) => {
+        AppState.referenceDeepResult = result;
+        const acts = result.three_act_structure || {};
+        const volumes = Array.isArray(result.volume_outlines) ? result.volume_outlines : [];
+        const fineOutlines = Array.isArray(result.fine_outlines) ? result.fine_outlines : [];
+        const volumeHtml = volumes.map(volume => {
+            const replacements = (volume.replace || []).map(item =>
+                `${item.outdated || ''} → ${item.replacement || ''}`
+            );
+            return `
+            <section class="py-3 border-bottom">
+                <h5>第${Number(volume.volume_number || 0)}卷 · ${Utils.escapeHtml(volume.title || '')}</h5>
+                <p><strong>优化故事弧：</strong>${Utils.escapeHtml(volume.optimized_arc || '')}</p>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6"><strong>保留：</strong>${ReferenceNovelManager.listHtml(volume.retain)}</div>
+                    <div class="col-md-6"><strong>替换：</strong>${ReferenceNovelManager.listHtml(replacements)}</div>
+                </div>
+                <p><strong>细纲优化：</strong></p>${ReferenceNovelManager.listHtml(volume.optimized_units)}
+                <p><strong>卷末高潮：</strong>${Utils.escapeHtml(volume.climax || '')}</p>
+                <p class="mb-0"><strong>下一卷钩子：</strong>${Utils.escapeHtml(volume.ending_hook || '')}</p>
+            </section>
+        `}).join('');
+        const fineHtml = fineOutlines.map(unit => `
+            <tr>
+                <td>${Utils.escapeHtml(unit.chapter_range || '')}</td>
+                <td>${Utils.escapeHtml(unit.unit_title || '')}</td>
+                <td>${Utils.escapeHtml(unit.source_summary || '')}</td>
+            </tr>
+        `).join('');
+        const container = document.getElementById('reference-deep-result');
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div class="border-top pt-4">
+                <h4>深度拆解结果</h4>
+                <section class="py-3 border-bottom"><h5>优化后的整书大纲</h5><p class="mb-0">${Utils.escapeHtml(result.book_outline || '')}</p></section>
+                <section class="py-3 border-bottom">
+                    <h5>三幕结构</h5>
+                    <p><strong>第一幕：</strong>${Utils.escapeHtml(acts.act1 || '')}</p>
+                    <p><strong>第二幕：</strong>${Utils.escapeHtml(acts.act2 || '')}</p>
+                    <p class="mb-0"><strong>第三幕：</strong>${Utils.escapeHtml(acts.act3 || '')}</p>
+                </section>
+                <section class="py-3 border-bottom"><h5>主角成长弧</h5><p>${Utils.escapeHtml(result.protagonist_arc || '')}</p><h5>世界递进</h5><p class="mb-0">${Utils.escapeHtml(result.world_progression || '')}</p></section>
+                ${volumeHtml}
+                <section class="py-3">
+                    <h5>每 5–10 章细纲</h5>
+                    <div class="table-responsive"><table class="table table-striped"><thead><tr><th>章节</th><th>单元</th><th>剧情因果链</th></tr></thead><tbody>${fineHtml}</tbody></table></div>
+                </section>
+                <button class="btn btn-primary" onclick="applyReferenceOutlineToCreation()">
+                    <i class="fas fa-pen-nib me-2"></i>采用此结构创建新小说
+                </button>
+            </div>
+        `;
+    },
+
+    applyToCreation: () => {
+        const result = AppState.referenceDeepResult;
+        if (!result) return;
+        const acts = result.three_act_structure || {};
+        const volumes = (result.volume_outlines || []).map(volume =>
+            `第${volume.volume_number || ''}卷：${volume.optimized_arc || ''}`
+        ).join('\n');
+        const requirements = [
+            '【参考结构要求】仅借鉴抽象结构，禁止复用参考小说的专有名词、人物映射和标志性桥段。',
+            `【整书主线】${result.book_outline || ''}`,
+            `【第一幕】${acts.act1 || ''}`,
+            `【第二幕】${acts.act2 || ''}`,
+            `【第三幕】${acts.act3 || ''}`,
+            `【主角成长】${result.protagonist_arc || ''}`,
+            `【世界递进】${result.world_progression || ''}`,
+            `【卷级结构】\n${volumes}`,
+            `【市场优化】${(result.market_optimization || []).join('；')}`,
+            `【原创红线】${(result.originality_guardrails || []).join('；')}`
+        ].join('\n');
+        document.getElementById('novel-requirements').value = requirements.slice(0, 5000);
+        document.getElementById('requirements-count').textContent = Math.min(requirements.length, 5000);
+        Navigation.showCreateNovel();
+        Utils.showMessage('已带入抽象结构，请继续确认题材、人物和世界观', 'success');
+    },
+
+    reset: () => {
+        if (AppState.referencePollTimer) clearTimeout(AppState.referencePollTimer);
+        AppState.referencePollTimer = null;
+        AppState.referenceAnalysisId = null;
+        AppState.referenceDeepResult = null;
+        document.getElementById('reference-novel-form').reset();
+        ['reference-report-container', 'reference-deep-progress', 'reference-deep-result'].forEach(id => {
+            const element = document.getElementById(id);
+            element.style.display = 'none';
+            element.innerHTML = '';
+        });
     }
 };
 
@@ -3059,6 +3344,10 @@ window.showWelcome = Navigation.showWelcome;
 window.showCreateNovel = Navigation.showCreateNovel;
 window.showContinueNovel = Navigation.showContinueNovel;
 window.showNovelList = Navigation.showNovelList;
+window.showReferenceNovelAnalysis = Navigation.showReferenceNovelAnalysis;
+window.startReferenceDeepExtraction = ReferenceNovelManager.startDeepExtraction;
+window.resetReferenceNovelAnalysis = ReferenceNovelManager.reset;
+window.applyReferenceOutlineToCreation = ReferenceNovelManager.applyToCreation;
 
 // 重置小说选择
 window.resetNovelSelection = () => {
@@ -6266,6 +6555,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('create-novel-form').addEventListener('submit', (e) => {
         e.preventDefault();
         window.createNovel();
+    });
+
+    document.getElementById('reference-novel-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        ReferenceNovelManager.analyze();
     });
     
     // 设置字符计数

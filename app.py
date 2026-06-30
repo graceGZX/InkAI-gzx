@@ -22,6 +22,8 @@ from quick_continuation_executor import get_executor, QuickContinuationProgress
 from base_agent import BaseAgent
 from concept_advisor import ConceptAdvisor, fetch_market_snapshot
 from core.golden_opening import is_golden_opening_complete
+from reference_novel_analyzer import ReferenceNovelAnalyzer
+from reference_novel_service import ReferenceNovelService
 
 class _LLMAgent(BaseAgent):
     def process(self, input_data): pass
@@ -35,8 +37,26 @@ def _call_concept_llm(messages):
 
 concept_advisor = ConceptAdvisor(llm=_call_concept_llm, researcher=fetch_market_snapshot)
 
+
+def _call_reference_llm(messages):
+    agent = _LLMAgent("参考小说分析主编")
+    agent.model = "deepseek-v4-pro"
+    return agent.call_llm(messages, temperature=0.25, max_tokens=8000)
+
+
+reference_novel_service = ReferenceNovelService(
+    os.path.join(config.DATA_DIR, "reference_analyses"),
+    ReferenceNovelAnalyzer(llm=_call_reference_llm),
+)
+
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 CORS(app)  # 允许跨域请求
+
+
+@app.errorhandler(413)
+def reference_upload_too_large(error):
+    return jsonify({"success": False, "error": "TXT 文件超过 100MB 上限"}), 413
 
 # 全局工作流程实例
 workflow = InkAIWorkflow()
@@ -240,6 +260,53 @@ def concept_dialogue():
     except Exception as exc:
         print(f"小说概念对话错误: {exc}")
         return jsonify({"success": False, "error": f"概念对话失败: {exc}"}), 500
+
+
+@app.route('/api/reference-novels/analyze', methods=['POST'])
+def analyze_reference_novel():
+    """上传大型 TXT，并执行低成本参考价值初筛。"""
+    try:
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            return jsonify({"success": False, "error": "请选择 TXT 小说文件"}), 400
+        state = reference_novel_service.create_screening(
+            filename=upload.filename,
+            raw=upload.read(),
+            title=request.form.get("title", ""),
+            target_direction=request.form.get("target_direction", ""),
+        )
+        return jsonify({"success": True, "data": state})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        print(f"参考小说初筛失败: {exc}")
+        return jsonify({"success": False, "error": f"参考小说分析失败: {exc}"}), 500
+
+
+@app.route('/api/reference-novels/<analysis_id>', methods=['GET'])
+def get_reference_novel_analysis(analysis_id):
+    try:
+        state = reference_novel_service.get_state(analysis_id)
+        if not state:
+            return jsonify({"success": False, "error": "分析任务不存在"}), 404
+        return jsonify({"success": True, "data": state})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"读取分析状态失败: {exc}"}), 500
+
+
+@app.route('/api/reference-novels/<analysis_id>/deep-extract', methods=['POST'])
+def start_reference_novel_deep_extraction(analysis_id):
+    """用户确认参考价值后，启动后台全量分层拆解。"""
+    try:
+        state = reference_novel_service.start_deep_extraction(analysis_id)
+        return jsonify({"success": True, "data": state})
+    except ValueError as exc:
+        status = 404 if "不存在" in str(exc) else 400
+        return jsonify({"success": False, "error": str(exc)}), status
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"启动深度提取失败: {exc}"}), 500
 
 @app.route('/api/novels', methods=['GET'])
 def get_novels():
