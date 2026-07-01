@@ -7,6 +7,37 @@ from inkai_workflow_optimized import InkAIWorkflowOptimized
 
 
 class ChapterLengthTests(unittest.TestCase):
+    def test_both_writers_receive_the_shared_lean_prose_rules(self):
+        captured = []
+
+        new_writer = ChapterWriterAgent.__new__(ChapterWriterAgent)
+        new_writer.call_llm = lambda messages, **kwargs: (
+            captured.append(messages[-1]["content"])
+            or json.dumps({"content": "正" * 3000}, ensure_ascii=False)
+        )
+        new_writer.process({"chapter_info": {}, "storyline": {}})
+
+        continuation_writer = ContinuationChapterWriter.__new__(ContinuationChapterWriter)
+        continuation_writer.name = "测试续写写手"
+        continuation_writer.call_llm = lambda messages, **kwargs: (
+            captured.append(messages[-1]["content"])
+            or json.dumps({"content": "正" * 3000}, ensure_ascii=False)
+        )
+        continuation_writer.process({
+            "storyline": {"chapter_number": 2},
+            "knowledge_base": {"novel_info": {"title": "测试"}},
+        })
+
+        self.assertEqual(2, len(captured))
+        for prompt in captured:
+            self.assertIn("第三人称限知视角", prompt)
+            self.assertIn("句式必须简单直白", prompt)
+            self.assertIn("不要词藻堆砌", prompt)
+            self.assertIn("禁止独立的景物描写段", prompt)
+            self.assertIn("网络流行语每章最多一至两处", prompt)
+            self.assertIn("不要机械地每句都换段", prompt)
+            self.assertNotIn("语言生动，描写细腻", prompt)
+
     def test_new_chapter_writer_retries_until_body_is_around_3000_characters(self):
         agent = ChapterWriterAgent.__new__(ChapterWriterAgent)
         responses = iter([

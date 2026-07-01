@@ -21,6 +21,39 @@ console.log('AppState 初始化完成:', AppState);
 
 // API 基础URL
 const API_BASE = '/api';
+const REFERENCE_BRIEF_LIMIT = 5000;
+
+function buildReferenceCreationBrief(result) {
+    const acts = result.three_act_structure || {};
+    const openingUnits = (result.fine_outlines || []).slice(0, 3).map(unit => {
+        const range = unit.chapter_range || '';
+        const title = unit.unit_title || unit.title || '';
+        const summary = unit.optimized_summary || unit.source_summary || unit.plot_progression || '';
+        return `${range} ${title}：${Array.isArray(summary) ? summary.join('；') : summary}`.trim();
+    });
+    const firstVolume = (result.volume_outlines || [])[0] || {};
+    const sections = [
+        ['参考原则', '仅借鉴抽象结构，禁止复用参考小说的专有名词、人物映射和标志性桥段。'],
+        ['整书主线', result.book_outline],
+        ['第一幕', acts.act1],
+        ['第二幕', acts.act2],
+        ['第三幕', acts.act3],
+        ['主角成长', result.protagonist_arc],
+        ['世界递进', result.world_progression],
+        ['开篇卷目标', firstVolume.optimized_arc || firstVolume.summary],
+        ['开篇三个剧情单元', openingUnits.join('\n')],
+        ['市场优化', (result.market_optimization || []).join('；')],
+        ['原创红线', (result.originality_guardrails || []).join('；')]
+    ];
+    let brief = sections
+        .filter(([, value]) => value)
+        .map(([label, value]) => `【${label}】${value}`)
+        .join('\n');
+    if (brief.length > REFERENCE_BRIEF_LIMIT) {
+        brief = brief.slice(0, REFERENCE_BRIEF_LIMIT - 18).replace(/[^。！？\n]*$/, '') + '\n【完整蓝图已独立绑定】';
+    }
+    return brief;
+}
 
 // 工具函数
 const Utils = {
@@ -542,24 +575,9 @@ const ReferenceNovelManager = {
     applyToCreation: () => {
         const result = AppState.referenceDeepResult;
         if (!result) return;
-        const acts = result.three_act_structure || {};
-        const volumes = (result.volume_outlines || []).map(volume =>
-            `第${volume.volume_number || ''}卷：${volume.optimized_arc || ''}`
-        ).join('\n');
-        const requirements = [
-            '【参考结构要求】仅借鉴抽象结构，禁止复用参考小说的专有名词、人物映射和标志性桥段。',
-            `【整书主线】${result.book_outline || ''}`,
-            `【第一幕】${acts.act1 || ''}`,
-            `【第二幕】${acts.act2 || ''}`,
-            `【第三幕】${acts.act3 || ''}`,
-            `【主角成长】${result.protagonist_arc || ''}`,
-            `【世界递进】${result.world_progression || ''}`,
-            `【卷级结构】\n${volumes}`,
-            `【市场优化】${(result.market_optimization || []).join('；')}`,
-            `【原创红线】${(result.originality_guardrails || []).join('；')}`
-        ].join('\n');
-        document.getElementById('novel-requirements').value = requirements.slice(0, 5000);
-        document.getElementById('requirements-count').textContent = Math.min(requirements.length, 5000);
+        const requirements = buildReferenceCreationBrief(result);
+        document.getElementById('novel-requirements').value = requirements;
+        document.getElementById('requirements-count').textContent = requirements.length;
         AppState.pendingReferenceAnalysisId = AppState.referenceAnalysisId;
         Navigation.showCreateNovel();
         Utils.showMessage('已带入抽象结构；项目创建后会自动绑定续写蓝图', 'success');
@@ -591,7 +609,8 @@ const NovelManager = {
                 method: 'POST',
                 body: JSON.stringify({
                     title: title,
-                    user_requirements: requirements
+                    user_requirements: requirements,
+                    reference_analysis_id: AppState.pendingReferenceAnalysisId
                 })
             });
             
@@ -599,17 +618,9 @@ const NovelManager = {
                 Utils.showMessage('小说项目创建成功！', 'success');
                 AppState.currentNovelId = response.data.novel_id;
 
-                if (AppState.pendingReferenceAnalysisId) {
-                    try {
-                        await Utils.apiRequest(
-                            `/reference-novels/${AppState.pendingReferenceAnalysisId}/attach/${response.data.novel_id}`,
-                            {method: 'POST'}
-                        );
-                        AppState.pendingReferenceAnalysisId = null;
-                        Utils.showMessage('参考大纲已绑定到新小说', 'success');
-                    } catch (attachError) {
-                        Utils.showMessage('小说已创建，但续写蓝图绑定失败: ' + attachError.message, 'warning');
-                    }
+                if (response.data.continuation_blueprint) {
+                    AppState.pendingReferenceAnalysisId = null;
+                    Utils.showMessage('完整参考大纲已绑定到新小说', 'success');
                 }
                 
                 // 自动选择标签
@@ -1829,11 +1840,11 @@ const escapeStorylineText = (value) => {
 const renderStorylineValue = (value) => {
     if (value === null || value === undefined || value === '') return '<span class="text-muted">未设置</span>';
     if (Array.isArray(value)) {
-        return `<ul class="mb-0 ps-3">${value.map(item => `<li>${escapeStorylineText(item)}</li>`).join('')}</ul>`;
+        return `<ul class="mb-0 ps-3">${value.map(item => `<li>${renderStorylineValue(item)}</li>`).join('')}</ul>`;
     }
     if (typeof value === 'object') {
         return Object.entries(value)
-            .map(([k, v]) => `<div class="mb-1"><strong>${escapeStorylineText(k)}：</strong>${escapeStorylineText(typeof v === 'object' ? JSON.stringify(v) : v)}</div>`)
+            .map(([k, v]) => `<div class="mb-1"><strong>${escapeStorylineText(k)}：</strong>${renderStorylineValue(v)}</div>`)
             .join('');
     }
     return escapeStorylineText(value);
@@ -2570,20 +2581,20 @@ const StepDetailsManager = {
                     <div class="storyline-details" id="storyline-content">
                         <div class="storyline-section mb-3">
                             <h6 class="text-primary">主要目标</h6>
-                            <p><span class="editable" data-field="overall_storyline.main_goal">${storyline.overall_storyline?.main_goal || '未知'}</span></p>
+                            <div class="editable" data-field="overall_storyline.main_goal">${renderStorylineValue(storyline.overall_storyline?.main_goal)}</div>
                         </div>
                         
                         <div class="storyline-section mb-3">
                             <h6 class="text-primary">主要冲突</h6>
                             <div class="conflict-details">
                                 <div class="mb-2">
-                                    <strong>外部冲突:</strong> <span class="editable" data-field="overall_storyline.core_conflict.external">${storyline.overall_storyline?.core_conflict?.external || '未知'}</span>
+                                    <strong>外部冲突:</strong> <span class="editable" data-field="overall_storyline.core_conflict.external">${storyline.overall_storyline?.core_conflict?.external || storyline.overall_storyline?.conflict?.external || '未知'}</span>
                                 </div>
                                 <div class="mb-2">
-                                    <strong>内部冲突:</strong> <span class="editable" data-field="overall_storyline.core_conflict.internal">${storyline.overall_storyline?.core_conflict?.internal || '未知'}</span>
+                                    <strong>内部冲突:</strong> <span class="editable" data-field="overall_storyline.core_conflict.internal">${storyline.overall_storyline?.core_conflict?.internal || storyline.overall_storyline?.conflict?.internal || '未知'}</span>
                                 </div>
                                 <div class="mb-2">
-                                    <strong>人际冲突:</strong> <span class="editable" data-field="overall_storyline.core_conflict.interpersonal">${storyline.overall_storyline?.core_conflict?.interpersonal || '未知'}</span>
+                                    <strong>人际冲突:</strong> <span class="editable" data-field="overall_storyline.core_conflict.interpersonal">${storyline.overall_storyline?.core_conflict?.interpersonal || storyline.overall_storyline?.conflict?.interpersonal || '未知'}</span>
                                 </div>
                             </div>
                         </div>
@@ -2624,6 +2635,23 @@ const StepDetailsManager = {
                         <div class="storyline-section mb-3">
                             <h6 class="text-primary">商业潜力</h6>
                             <p><span class="editable" data-field="overall_storyline.commercial_potential">${storyline.overall_storyline?.commercial_potential || '未知'}</span></p>
+                        </div>
+
+                        <div class="storyline-section mb-3">
+                            <h6 class="text-primary">三幕结构</h6>
+                            <div class="mb-2"><strong>第一幕：</strong>${renderStorylineValue(storyline.overall_storyline?.act1)}</div>
+                            <div class="mb-2"><strong>第二幕：</strong>${renderStorylineValue(storyline.overall_storyline?.act2)}</div>
+                            <div class="mb-2"><strong>第三幕：</strong>${renderStorylineValue(storyline.overall_storyline?.act3)}</div>
+                        </div>
+
+                        <div class="storyline-section mb-3">
+                            <h6 class="text-primary">第一模块</h6>
+                            ${renderStorylineValue(storyline.first_module)}
+                        </div>
+
+                        <div class="storyline-section mb-3">
+                            <h6 class="text-primary">暗线与伏笔</h6>
+                            ${renderStorylineValue(storyline.subplot_hints)}
                         </div>
                     </div>
                     

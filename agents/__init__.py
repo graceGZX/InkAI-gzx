@@ -17,6 +17,7 @@ from .character_improver import CharacterImprover
 from .storyline_generator import StorylineGeneratorAgent
 from .quality_assessor import QualityAssessorAgent
 from .chapter_writer import ChapterWriterAgent
+from .chapter_title_agent import ChapterTitleAgent
 from .novel_continuation_agent import NovelContinuationAgent
 from .continuation_storyline_generator import ContinuationStorylineGenerator
 from .continuation_chapter_writer import ContinuationChapterWriter
@@ -45,6 +46,7 @@ __all__ = [
     'StorylineGeneratorAgent',
     'QualityAssessorAgent',
     'ChapterWriterAgent',
+    'ChapterTitleAgent',
     'NovelContinuationAgent',
     'ContinuationStorylineGenerator',
     'ContinuationChapterWriter',

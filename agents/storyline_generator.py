@@ -5,6 +5,8 @@
 from base_agent import BaseAgent
 from typing import Dict, List, Any
 import config
+import json
+import re
 
 
 class StorylineGeneratorAgent(BaseAgent):
@@ -359,7 +361,8 @@ class StorylineGeneratorAgent(BaseAgent):
     
     def _validate_storyline(self, storyline: Dict[str, Any]) -> Dict[str, Any]:
         """验证故事线"""
-        required_keys = ["world_setting", "main_goal", "conflict", "act1", "act2", "act3"]
+        storyline = self._recover_storyline_content(storyline)
+        required_keys = ["world_setting", "main_goal", "core_conflict", "act1", "act2", "act3"]
 
         for key in required_keys:
             if key not in storyline:
@@ -380,6 +383,29 @@ class StorylineGeneratorAgent(BaseAgent):
             storyline["volumes"] = []
 
         return storyline
+
+    @staticmethod
+    def _recover_storyline_content(storyline: Dict[str, Any]) -> Dict[str, Any]:
+        """Recover a JSON object that the generic parser left in ``content``."""
+        if not isinstance(storyline, dict) or not storyline.get("parse_error"):
+            return storyline
+        raw = storyline.get("content")
+        if not isinstance(raw, str):
+            return storyline
+
+        candidate = raw.strip()
+        if candidate.startswith("```json"):
+            candidate = candidate[7:]
+        if candidate.endswith("```"):
+            candidate = candidate[:-3]
+        candidate = candidate.strip()
+        # Models occasionally close a JSON string with a Chinese right quote.
+        candidate = re.sub(r"”(?=\s*[,}\]])", '"', candidate)
+        try:
+            recovered = json.loads(candidate)
+        except json.JSONDecodeError:
+            return storyline
+        return recovered if isinstance(recovered, dict) else storyline
     
     def _validate_first_module(self, module: Dict[str, Any]) -> Dict[str, Any]:
         """验证第一个模块"""

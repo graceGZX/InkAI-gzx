@@ -29,7 +29,11 @@ class CharacterCreatorAgent(BaseAgent):
         main_character = self._create_main_character(selected_tags, user_requirements)
         
         # 创建次要人物
-        supporting_characters = self._create_supporting_characters(selected_tags, main_character)
+        supporting_characters = self._create_supporting_characters(
+            selected_tags,
+            main_character,
+            user_requirements,
+        )
         
         return {
             "main_character": main_character,
@@ -226,19 +230,35 @@ class CharacterCreatorAgent(BaseAgent):
         # 验证和补充人物信息
         return self._validate_character(result, character_type)
     
-    def _create_supporting_characters(self, tags: Dict[str, List[str]], main_character: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _create_supporting_characters(
+        self,
+        tags: Dict[str, List[str]],
+        main_character: Dict[str, Any],
+        requirements: str = "",
+    ) -> List[Dict[str, Any]]:
         """创建次要人物"""
         # 根据故事类型确定需要的次要人物
-        character_roles = self._determine_supporting_roles(tags)
+        character_roles = self._determine_supporting_roles(tags, requirements, main_character)
         
         supporting_characters = []
         for role in character_roles:
-            character = self._create_single_supporting_character(role, main_character, tags)
+            character = self._create_single_supporting_character(
+                role,
+                main_character,
+                tags,
+                requirements,
+            )
             supporting_characters.append(character)
         
         return supporting_characters
     
-    def _create_single_supporting_character(self, role: str, main_character: Dict[str, Any], tags: Dict[str, List[str]]) -> Dict[str, Any]:
+    def _create_single_supporting_character(
+        self,
+        role: str,
+        main_character: Dict[str, Any],
+        tags: Dict[str, List[str]],
+        requirements: str = "",
+    ) -> Dict[str, Any]:
         """创建单个次要人物"""
         prompt = f"""
         为主角创建{role}角色：
@@ -248,6 +268,16 @@ class CharacterCreatorAgent(BaseAgent):
         
         故事标签：
         {self._format_tags(tags)}
+
+        用户创作需求：
+        {requirements}
+
+        核心约束：
+        - 必须遵守用户需求中的人物关系、性别、故事功能和原创要求。
+        - 用户需求可能包含参考小说的摘要。摘要中出现的姓名、地名、组织名、能力名和具体关系桥段都只用于理解结构，全部视为禁用素材，严禁直接采用、改一两个字后采用或建立一一对应映射。
+        - 角色的姓名、家庭、专业、能力、目标、相识方式和感情矛盾必须重新原创，并与主角当前设定自然衔接。
+        - 如果角色是女主或核心恋人，她必须拥有独立目标、能力、成长线和剧情作用，不能只是被追求、被保护或提供情绪价值的工具人。
+        - 她与主角的关系要能双向改变彼此，并能独立推动至少一条长期剧情线。
         
         请创建这个{role}角色，包括基础信息、性格、外貌、背景和与主角的关系。
         
@@ -291,18 +321,35 @@ class CharacterCreatorAgent(BaseAgent):
         else:
             return "普通人"
     
-    def _determine_supporting_roles(self, tags: Dict[str, List[str]]) -> List[str]:
+    def _determine_supporting_roles(
+        self,
+        tags: Dict[str, List[str]],
+        requirements: str = "",
+        main_character: Dict[str, Any] = None,
+    ) -> List[str]:
         """确定需要的次要人物角色"""
         type_tags = tags.get("类型标签", [])
+        all_tags = [tag for values in tags.values() if isinstance(values, list) for tag in values]
+        romance_markers = ("爱情", "恋爱", "恋人", "女主", "男主", "情侣", "暗恋", "订婚", "结婚", "感情线")
+        requires_romance = any(tag in ("言情", "爱情", "校园恋爱") for tag in all_tags) or any(
+            marker in requirements for marker in romance_markers
+        )
+
+        roles = []
+        if requires_romance:
+            main_gender = (main_character or {}).get("basic_info", {}).get("gender", "")
+            roles.append("男主（核心恋人）" if main_gender == "女" else "女主（核心恋人）")
         
         if "悬疑" in type_tags:
-            return ["助手", "反派", "受害者"]
+            roles.extend(["助手", "反派", "受害者"])
         elif "言情" in type_tags:
-            return ["恋人", "情敌", "朋友"]
+            roles.extend(["情敌", "朋友"])
         elif "校园" in type_tags:
-            return ["同学", "老师", "朋友"]
+            roles.extend(["同学", "老师", "朋友"])
         else:
-            return ["朋友", "导师", "对手"]
+            roles.extend(["朋友", "导师", "对手"])
+
+        return list(dict.fromkeys(roles))
     
     def _define_relationships(self, main_character: Dict[str, Any], supporting_characters: List[Dict[str, Any]]) -> Dict[str, Any]:
         """定义人物关系"""

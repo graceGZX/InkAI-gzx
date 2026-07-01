@@ -347,9 +347,10 @@ def get_novels():
 def create_novel():
     """创建新小说"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         title = data.get('title', '未命名小说')
         user_requirements = data.get('user_requirements', '')
+        reference_analysis_id = str(data.get('reference_analysis_id', '')).strip()
         
         if not user_requirements:
             return jsonify({
@@ -364,6 +365,18 @@ def create_novel():
                 "success": False,
                 "error": result['error']
             }), 400
+
+        if reference_analysis_id:
+            blueprint = reference_novel_service.attach_to_novel(
+                reference_analysis_id,
+                result['novel_id'],
+            )
+            result['continuation_blueprint'] = {
+                'analysis_id': blueprint.get('analysis_id', ''),
+                'reference_title': blueprint.get('reference_title', ''),
+                'start_chapter': blueprint.get('start_chapter', 1),
+                'end_chapter': blueprint.get('end_chapter', 0),
+            }
         
         return jsonify({
             "success": True,

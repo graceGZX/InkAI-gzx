@@ -7,6 +7,8 @@ from base_agent import BaseAgent
 from typing import Dict, List, Any
 import config
 from core.chapter_content import extract_chapter_text
+from core.writing_style import LEAN_HUMAN_PROSE_GUIDE
+from agents.chapter_title_agent import ChapterTitleAgent
 from core.chapter_length import (
     CHAPTER_GENERATION_ATTEMPTS,
     CHAPTER_MAX_LENGTH,
@@ -23,6 +25,7 @@ class ChapterWriterAgent(BaseAgent):
     
     def __init__(self):
         super().__init__("章节写作智能体")
+        self.title_agent = ChapterTitleAgent()
     
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """处理章节写作请求"""
@@ -44,11 +47,27 @@ class ChapterWriterAgent(BaseAgent):
                 )
             }
         
+        self._apply_generated_title(chapter_content, chapter_info.get("chapter_number", 1))
+
         return {
             "chapter_content": chapter_content,
             "word_count": count_chapter_characters(chapter_content.get("content", "")),
             "writing_quality": self._assess_writing_quality(chapter_content)
         }
+
+    def _apply_generated_title(self, chapter_content: Dict[str, Any], chapter_number: int) -> None:
+        title_agent = getattr(self, "title_agent", None)
+        if not title_agent:
+            return
+        result = title_agent.process({
+            "chapter_number": chapter_number,
+            "current_title": chapter_content.get("title", ""),
+            "content": chapter_content.get("content", ""),
+            "summary": chapter_content.get("summary", ""),
+            "key_events": chapter_content.get("key_events", []),
+        })
+        if result.get("title"):
+            chapter_content["title"] = result["title"]
     
     def _write_chapter(self, chapter_info: Dict[str, Any], characters: Dict[str, Any], 
                       storyline: Dict[str, Any], tags: Dict[str, List[str]], user_requirements: str) -> Dict[str, Any]:
@@ -82,10 +101,12 @@ class ChapterWriterAgent(BaseAgent):
         2. 体现人物性格特点
         3. 推进故事情节发展
         4. 设置适当的伏笔和悬念
-        5. 语言生动，描写细腻
+        5. 严格执行下方正文风格规范，简洁不等于流水账；场景必须有冲突、变化和结果
         6. 正文必须严格控制在{CHAPTER_MIN_LENGTH}-{CHAPTER_MAX_LENGTH}字，目标约{CHAPTER_TARGET_LENGTH}字；字数仅计算正文，不含标题、概要等JSON字段
         7. 严格完成本章的黄金开篇任务，并与上一章自然衔接
         8. 字数约束优先级最高，不得为了补充描写突破上限
+
+        {LEAN_HUMAN_PROSE_GUIDE}
 
         
         请返回JSON格式：
@@ -101,7 +122,7 @@ class ChapterWriterAgent(BaseAgent):
         """
         
         messages = [
-            {"role": "system", "content": "你是一个专业的小说作家，擅长创作引人入胜的章节内容。"},
+            {"role": "system", "content": "你是专业的中文商业小说作者。坚持原创，用克制白描、人物行动和有效对话写出自然、有趣、无模板腔的正文。"},
             {"role": "user", "content": prompt}
         ]
         
@@ -131,10 +152,8 @@ class ChapterWriterAgent(BaseAgent):
         avg_sentence_length = word_count / sentence_count if sentence_count > 0 else 0
         
         # 检查是否有对话
-        has_dialogue = '"' in content or '"' in content or '「' in content
-        
-        # 检查是否有环境描写
-        has_description = any(word in content for word in ['的', '地', '得', '着', '了', '过'])
+        has_dialogue = any(mark in content for mark in ['“', '「', '"'])
+        has_action = any(word in content for word in ['走', '跑', '看', '听', '说', '问', '答', '拿', '放', '推', '转身'])
         
         quality_score = 0
         if CHAPTER_MIN_LENGTH <= word_count <= CHAPTER_MAX_LENGTH:
@@ -149,8 +168,8 @@ class ChapterWriterAgent(BaseAgent):
         
         if has_dialogue:
             quality_score += 25
-        
-        if has_description:
+
+        if has_action:
             quality_score += 25
         
         return {
@@ -159,7 +178,7 @@ class ChapterWriterAgent(BaseAgent):
             "sentence_count": sentence_count,
             "avg_sentence_length": round(avg_sentence_length, 2),
             "has_dialogue": has_dialogue,
-            "has_description": has_description
+            "has_action": has_action
         }
     
     def _format_chapter_info(self, chapter_info: Dict[str, Any]) -> str:

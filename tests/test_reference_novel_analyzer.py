@@ -106,6 +106,44 @@ class ReferenceNovelAnalyzerTests(unittest.TestCase):
         self.assertEqual(body, captured["raw"])
         self.assertEqual("都市悬疑", captured["target_direction"])
 
+    def test_create_novel_attaches_reference_blueprint_before_responding(self):
+        import app as app_module
+
+        events = []
+
+        class FakeWorkflow:
+            def start_new_novel(self, requirements, title):
+                events.append(("create", requirements, title))
+                return {"novel_id": "novel-123", "status": "created"}
+
+        class FakeService:
+            def attach_to_novel(self, analysis_id, novel_id):
+                events.append(("attach", analysis_id, novel_id))
+                return {
+                    "analysis_id": analysis_id,
+                    "reference_title": "全球高武",
+                    "start_chapter": 1,
+                    "end_chapter": 1400,
+                }
+
+        with patch.object(app_module, "workflow", FakeWorkflow()), patch.object(
+            app_module, "reference_novel_service", FakeService()
+        ):
+            response = app_module.app.test_client().post(
+                "/api/novels",
+                json={
+                    "title": "原创新书",
+                    "user_requirements": "5000字内的创作摘要",
+                    "reference_analysis_id": "analysis-123",
+                },
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("create", events[0][0])
+        self.assertEqual(("attach", "analysis-123", "novel-123"), events[1])
+        blueprint = response.get_json()["data"]["continuation_blueprint"]
+        self.assertEqual("全球高武", blueprint["reference_title"])
+
     def test_confirmed_deep_extraction_builds_fine_volume_and_book_outlines(self):
         text = "\n".join(
             f"第{number}章 章节{number}\n" + (f"剧情{number}。" * 40)

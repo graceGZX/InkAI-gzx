@@ -8,6 +8,8 @@ from typing import Dict, List, Any, Optional
 import config
 from core.chapter_content import extract_chapter_text
 from core.continuation_blueprint import format_blueprint_context
+from core.writing_style import LEAN_HUMAN_PROSE_GUIDE
+from agents.chapter_title_agent import ChapterTitleAgent
 from core.chapter_length import (
     CHAPTER_GENERATION_ATTEMPTS,
     CHAPTER_MAX_LENGTH,
@@ -24,6 +26,7 @@ class ContinuationChapterWriter(BaseAgent):
     
     def __init__(self):
         super().__init__("续写章节写作智能体")
+        self.title_agent = ChapterTitleAgent()
     
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """处理续写章节写作请求"""
@@ -46,6 +49,8 @@ class ContinuationChapterWriter(BaseAgent):
                 )
             }
         
+        self._apply_generated_title(chapter_content, storyline.get("chapter_number", 1))
+
         return {
             "success": True,
             "status": "success",
@@ -53,6 +58,20 @@ class ContinuationChapterWriter(BaseAgent):
             "word_count": count_chapter_characters(chapter_content.get("content", "")),
             "writing_quality": self._assess_writing_quality(chapter_content)
         }
+
+    def _apply_generated_title(self, chapter_content: Dict[str, Any], chapter_number: int) -> None:
+        title_agent = getattr(self, "title_agent", None)
+        if not title_agent:
+            return
+        result = title_agent.process({
+            "chapter_number": chapter_number,
+            "current_title": chapter_content.get("title", ""),
+            "content": chapter_content.get("content", ""),
+            "summary": chapter_content.get("summary", ""),
+            "key_events": chapter_content.get("key_events", []),
+        })
+        if result.get("title"):
+            chapter_content["title"] = result["title"]
     
     def _write_continuation_chapter(self, storyline: Dict[str, Any], 
                                   knowledge_base: Dict[str, Any], 
@@ -92,7 +111,7 @@ class ContinuationChapterWriter(BaseAgent):
             ending_type_map = {
                 "cliffhanger": "【章末要求 - cliffhanger】必须在最紧张、最危险的时刻截断。不能解决当前冲突或危机。最后一段必须停在读者最想知道「然后呢」的瞬间，让读者强烈渴望翻到下一章。",
                 "hook":        "【章末要求 - hook】章末留下一个明确的疑问、反常细节或意外出现的人/事，引发读者强烈好奇，不需要紧张氛围，但必须留下悬念。",
-                "pause":       "【章末要求 - pause】章末让当前冲突暂时平息，节奏放缓。可用内心独白、环境描写或轻松对话收尾，给读者喘息空间。",
+                "pause":       "【章末要求 - pause】章末让当前冲突暂时平息，节奏放缓。可用一个克制的念头、具体动作或轻松对话收尾，给读者喘息空间。",
                 "resolution":  "【章末要求 - resolution】章末完整解决本弧的核心冲突，给读者情绪释放感。但在最后几句中，必须埋下一个新的伏笔或问题，为下一弧做铺垫。",
             }
             if ending_type in ending_type_map:
@@ -159,11 +178,14 @@ class ContinuationChapterWriter(BaseAgent):
             3. 按照故事线推进情节
             4. 保持原文的写作风格和基调
             5. 设置适当的伏笔和悬念
-            6. 语言生动，描写细腻
+            6. 严格执行下方正文风格规范，简洁不等于流水账；场景必须有冲突、变化和结果
             7. 正文必须严格控制在{CHAPTER_MIN_LENGTH}-{CHAPTER_MAX_LENGTH}字，目标约{CHAPTER_TARGET_LENGTH}字；字数仅计算正文，不含标题、概要等JSON字段
             8. 确保情节逻辑自洽
             9. 字数约束优先级最高，不得为了补充描写突破上限
             10. 如已绑定蓝图，正文必须完成当前单元分配给本章的推进，不得触碰禁用模式和原创红线
+            11. 若旧章节的语言习惯与下方规范冲突，保留人物口吻和设定，但从本章起减少冗余描写
+
+            {LEAN_HUMAN_PROSE_GUIDE}
             {arc_writing_instruction}
             {ending_instruction}
             {milestone_instruction}
@@ -182,7 +204,7 @@ class ContinuationChapterWriter(BaseAgent):
             """
             
             messages = [
-                {"role": "system", "content": "你是一个专业的小说续写作家，擅长保持原文风格和逻辑的续写创作。"},
+                {"role": "system", "content": "你是专业的中文商业小说续写作者。保持人物和逻辑连续，同时用克制白描、人物行动和有效对话写出自然、有趣、无模板腔的正文。"},
                 {"role": "user", "content": prompt}
             ]
             
@@ -275,13 +297,10 @@ class ContinuationChapterWriter(BaseAgent):
         avg_sentence_length = word_count / sentence_count if sentence_count > 0 else 0
         
         # 检查是否有对话
-        has_dialogue = '"' in content or '"' in content or '「' in content
-        
-        # 检查是否有环境描写
-        has_description = any(word in content for word in ['的', '地', '得', '着', '了', '过'])
+        has_dialogue = any(mark in content for mark in ['“', '「', '"'])
         
         # 检查是否有动作描写
-        has_action = any(word in content for word in ['走', '跑', '看', '听', '说', '想', '做'])
+        has_action = any(word in content for word in ['走', '跑', '看', '听', '说', '问', '答', '拿', '放', '推', '转身'])
         
         quality_score = 0
         if CHAPTER_MIN_LENGTH <= word_count <= CHAPTER_MAX_LENGTH:
@@ -297,11 +316,8 @@ class ContinuationChapterWriter(BaseAgent):
         if has_dialogue:
             quality_score += 20
         
-        if has_description:
-            quality_score += 15
-        
         if has_action:
-            quality_score += 15
+            quality_score += 30
         
         return {
             "overall_score": min(quality_score, 100),
@@ -309,7 +325,6 @@ class ContinuationChapterWriter(BaseAgent):
             "sentence_count": sentence_count,
             "avg_sentence_length": round(avg_sentence_length, 2),
             "has_dialogue": has_dialogue,
-            "has_description": has_description,
             "has_action": has_action
         }
     
