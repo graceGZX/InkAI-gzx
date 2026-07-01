@@ -5414,6 +5414,31 @@ window.improveStep = async (stepKey) => {
 
 // 显示改进对话框
 const showImprovementDialog = (type) => {
+    const isStoryline = type === 'storyline';
+    const titleLabel = type === 'characters' ? '人物设定' : '故事线';
+    const placeholder = type === 'characters'
+        ? '请输入具体的改进建议，例如：人物性格更加立体，增加内心冲突等'
+        : '请输入具体的改进建议，例如：增强主线冲突张力，调整分卷节奏等';
+
+    const dialogueSection = isStoryline ? `
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <span class="text-muted small">或者</span>
+            <button type="button" class="btn btn-outline-info btn-sm" id="btn-storyline-dialogue-start" onclick="startStorylineImproveDialogue('${type}')">
+                <i class="fas fa-comments me-1"></i>AI 对话改进
+            </button>
+            <span class="text-muted small">— 让 AI 帮你梳理具体改进方向</span>
+        </div>
+        <div id="storyline-dialogue-container" class="dialogue-container mb-3" style="display:none;">
+            <div id="storyline-dialogue-messages" style="max-height:280px;overflow-y:auto;padding-bottom:4px;"></div>
+            <div id="storyline-dialogue-input-area" class="mt-2" style="display:none;">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="storyline-dialogue-custom-input" placeholder="直接输入你的想法...">
+                    <button class="btn btn-outline-info" onclick="sendStorylineDialogueMessage()"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    ` : '';
+
     const modalHtml = `
         <div class="modal fade" id="improvementModal" tabindex="-1">
             <div class="modal-dialog modal-lg">
@@ -5421,22 +5446,25 @@ const showImprovementDialog = (type) => {
                     <div class="modal-header">
                         <h5 class="modal-title">
                             <i class="fas fa-magic me-2"></i>
-                            改进${type === 'characters' ? '人物设定' : '故事线'}
+                            改进${titleLabel}
                         </h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="mb-3">
-                            <label for="improvement-suggestions" class="form-label">
-                                改进建议（可选，留空将使用AI自动分析）
-                            </label>
-                            <textarea class="form-control" id="improvement-suggestions" rows="4" 
-                                      placeholder="请输入具体的改进建议，例如：人物性格更加立体，增加内心冲突等"></textarea>
+                        <div id="manual-input-area">
+                            <div class="mb-3">
+                                <label for="improvement-suggestions" class="form-label">
+                                    改进建议（可选，留空将使用AI自动分析）
+                                </label>
+                                <textarea class="form-control" id="improvement-suggestions" rows="4"
+                                          placeholder="${placeholder}"></textarea>
+                            </div>
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                如果不填写改进建议，系统将自动分析当前内容并提供改进方案。
+                            </div>
                         </div>
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            如果不填写改进建议，系统将自动分析当前内容并提供改进方案。
-                        </div>
+                        ${dialogueSection}
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -5448,20 +5476,246 @@ const showImprovementDialog = (type) => {
             </div>
         </div>
     `;
-    
+
     // 移除现有模态框
     const existingModal = document.getElementById('improvementModal');
     if (existingModal) {
         existingModal.remove();
     }
-    
+
     // 添加新模态框
     document.body.insertAdjacentHTML('beforeend', modalHtml);
-    
+
     // 显示模态框
     const modal = new bootstrap.Modal(document.getElementById('improvementModal'));
     modal.show();
 };
+
+// ── 故事线 AI 对话改进 ──
+window._storylineDialogueState = null;
+
+const _initStorylineDialogueState = (dialogueEndpoint) => {
+    window._storylineDialogueState = { messages: [], round: 0, done: false, endpoint: dialogueEndpoint };
+};
+
+// 开始故事线对话改进（初始/续写通用）
+window.startStorylineImproveDialogue = async (type, isContinuation = false) => {
+    var container = document.getElementById('storyline-dialogue-container');
+    var startBtn = document.getElementById('btn-storyline-dialogue-start');
+    var manualArea = document.getElementById('manual-input-area');
+
+    container.style.display = 'block';
+    startBtn.style.display = 'none';
+    if (manualArea) manualArea.style.display = 'none';
+
+    var msgEl = document.getElementById('storyline-dialogue-messages');
+    msgEl.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>AI 正在准备提问...</div>';
+
+    var state = window._storylineDialogueState;
+    if (!state) {
+        var endpoint = isContinuation
+            ? '/novels/' + AppState.currentNovelId + '/continuation/storyline/improve/dialogue'
+            : '/novels/' + AppState.currentNovelId + '/storyline/improve/dialogue';
+        _initStorylineDialogueState(endpoint);
+        state = window._storylineDialogueState;
+    }
+
+    // 新对话
+    state.messages = [];
+    state.round = 0;
+    state.done = false;
+
+    try {
+        var resp = await Utils.apiRequest(state.endpoint, {
+            method: 'POST',
+            body: JSON.stringify({ messages: [] })
+        });
+
+        if (!resp.success) {
+            msgEl.innerHTML = '<div class="alert alert-warning py-2">' + Utils.escapeHtml(resp.error || '对话启动失败') + '</div>';
+            return;
+        }
+
+        state.messages = [{ role: 'assistant', content: resp.data }];
+        _renderStorylineDialogue(state);
+    } catch (e) {
+        msgEl.innerHTML = '<div class="alert alert-warning py-2">对话启动失败: ' + Utils.escapeHtml(e.message) + '</div>';
+    }
+};
+
+// 渲染故事线对话
+var _renderStorylineDialogue = function(state) {
+    var msgEl = document.getElementById('storyline-dialogue-messages');
+    var inputArea = document.getElementById('storyline-dialogue-input-area');
+    if (!msgEl) return;
+
+    var html = '';
+    for (var i = 0; i < state.messages.length; i++) {
+        var msg = state.messages[i];
+        if (msg.role === 'assistant') {
+            var data = msg.content;
+            html += '<div class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble">' + Utils.escapeHtml(data.question || '') + '</div>';
+            if (data.options && data.options.length > 0 && data.stage !== 'confirming') {
+                html += '<div class="chat-quick-replies mt-1">';
+                for (var j = 0; j < data.options.length; j++) {
+                    var opt = data.options[j];
+                    var cls = j === 0 ? 'chat-reply-btn confirm' : 'chat-reply-btn secondary';
+                    html += '<span class="' + cls + '" onclick="selectStorylineDialogueOption(\'' + Utils.escapeHtml(opt).replace(/'/g, "\\'") + '\')">' + Utils.escapeHtml(opt) + '</span>';
+                }
+                html += '</div>';
+            } else if (data.options && data.options.length > 0 && data.stage === 'confirming') {
+                html += '<div class="chat-quick-replies mt-1">';
+                for (var k = 0; k < data.options.length; k++) {
+                    html += '<span class="chat-reply-btn confirm" onclick="selectStorylineDialogueOption(\'' + Utils.escapeHtml(data.options[k]).replace(/'/g, "\\'") + '\')">' + Utils.escapeHtml(data.options[k]) + '</span>';
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        } else {
+            html += '<div class="dialogue-msg dialogue-user"><div class="dialogue-bubble user-bubble">' + Utils.escapeHtml(msg.content) + '</div></div>';
+        }
+    }
+    msgEl.innerHTML = html;
+    msgEl.scrollTop = msgEl.scrollHeight;
+
+    // 检查最后一条消息是否已完成
+    var lastMsg = state.messages[state.messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content.stage === 'confirming') {
+        if (inputArea) inputArea.style.display = 'none';
+    } else {
+        if (inputArea && state.round > 0) inputArea.style.display = 'block';
+    }
+};
+
+// 选择故事线对话选项
+window.selectStorylineDialogueOption = async function(option) {
+    var state = window._storylineDialogueState;
+    if (!state || state.done) return;
+
+    var isConfirming = false;
+    var lastMsg = state.messages[state.messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') {
+        isConfirming = lastMsg.content.stage === 'confirming';
+    }
+
+    state.messages.push({ role: 'user', content: option });
+    state.round++;
+
+    if (isConfirming && (option.startsWith('✅') || option.includes('确认'))) {
+        _finalizeStorylineDialogue();
+        return;
+    }
+    if (isConfirming && (option.startsWith('🔄') || option.includes('重新'))) {
+        // 重置对话重新开始
+        state.messages = [];
+        state.round = 0;
+        state.done = false;
+        var msgEl = document.getElementById('storyline-dialogue-messages');
+        msgEl.innerHTML = '<div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm me-2"></span>重新开始...</div>';
+        try {
+            var resp = await Utils.apiRequest(state.endpoint, {
+                method: 'POST', body: JSON.stringify({ messages: [] })
+            });
+            if (resp.success) {
+                state.messages = [{ role: 'assistant', content: resp.data }];
+                _renderStorylineDialogue(state);
+            }
+        } catch (e) {
+            msgEl.innerHTML = '<div class="alert alert-warning py-2">出错: ' + e.message + '</div>';
+        }
+        return;
+    }
+
+    // 显示 typing indicator 然后请求下一轮
+    var msgEl = document.getElementById('storyline-dialogue-messages');
+    var typingId = 'typing-' + Date.now();
+    msgEl.innerHTML += '<div id="' + typingId + '" class="dialogue-msg dialogue-ai"><div class="dialogue-bubble ai-bubble"><span class="spinner-border spinner-border-sm me-1"></span>思考中...</div></div>';
+    msgEl.scrollTop = msgEl.scrollHeight;
+
+    try {
+        var resp = await Utils.apiRequest(state.endpoint, {
+            method: 'POST',
+            body: JSON.stringify({ messages: state.messages.map(function(m) { return { role: m.role, content: typeof m.content === 'string' ? m.content : m.content.question || '' }; }) })
+        });
+        var typingEl = document.getElementById(typingId);
+        if (typingEl) typingEl.remove();
+
+        if (resp.success) {
+            state.messages.push({ role: 'assistant', content: resp.data });
+            _renderStorylineDialogue(state);
+        } else {
+            msgEl.innerHTML += '<div class="alert alert-warning py-2 mt-1">' + Utils.escapeHtml(resp.error || '对话失败') + '</div>';
+        }
+    } catch (e) {
+        var te = document.getElementById(typingId);
+        if (te) te.innerHTML = '<div class="alert alert-warning py-2">出错: ' + Utils.escapeHtml(e.message) + '</div>';
+    }
+};
+
+// 发送自定义输入
+window.sendStorylineDialogueMessage = async function() {
+    var input = document.getElementById('storyline-dialogue-custom-input');
+    if (!input) return;
+    var text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    await selectStorylineDialogueOption(text);
+};
+
+// 确认完成：将需求填入 textarea
+var _finalizeStorylineDialogue = function() {
+    var state = window._storylineDialogueState;
+    if (!state) return;
+    state.done = true;
+
+    // 收集所有用户消息作为需求
+    var userMessages = [];
+    for (var i = 0; i < state.messages.length; i++) {
+        if (state.messages[i].role === 'user') {
+            var content = typeof state.messages[i].content === 'string' ? state.messages[i].content : '';
+            if (content && !content.startsWith('✅') && !content.startsWith('🔄')) {
+                userMessages.push(content);
+            }
+        }
+    }
+
+    // 获取最后一条 assistant 消息中的确认需求
+    var lastAssistant = null;
+    for (var j = state.messages.length - 1; j >= 0; j--) {
+        if (state.messages[j].role === 'assistant') { lastAssistant = state.messages[j]; break; }
+    }
+    var confirmed = lastAssistant && lastAssistant.content ? lastAssistant.content.confirmed_requirements || '' : '';
+
+    var requirementsText = confirmed || userMessages.join('；');
+    if (requirementsText) {
+        // 尝试两个可能的 textarea ID
+        var textarea = document.getElementById('improvement-suggestions') || document.getElementById('continuation-improvement-suggestions');
+        if (textarea) {
+            textarea.value = requirementsText;
+        }
+    }
+
+    // 恢复手动输入区域
+    var manualArea = document.getElementById('manual-input-area');
+    if (manualArea) manualArea.style.display = 'block';
+
+    // 显示确认提示
+    var dialogueContainer = document.getElementById('storyline-dialogue-container');
+    if (dialogueContainer) {
+        dialogueContainer.innerHTML = '<div class="alert alert-success py-2 text-center mb-0">' +
+            '<i class="fas fa-check-circle me-1"></i>需求已确认，已填入上方改进建议框。<br>' +
+            '<small class="text-muted">请点击「开始改进」执行优化，或修改建议后点击。</small>' +
+            '</div>';
+    }
+};
+
+// 故事线对话输入框 Enter 键处理
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target.id === 'storyline-dialogue-custom-input') {
+        e.preventDefault();
+        sendStorylineDialogueMessage();
+    }
+});
 
 // 确认改进
 window.confirmImprovement = async (type) => {
@@ -6922,6 +7176,31 @@ window.improveContinuationStep = async (stepKey) => {
 
 // 显示续写改进对话框
 const showContinuationImprovementDialog = (type) => {
+    const isStoryline = type === 'storyline';
+    const titleLabel = type === 'storyline' ? '故事线' : '章节';
+    const placeholder = type === 'storyline'
+        ? '请输入具体的改进建议，例如：增强情节逻辑，调整场景设定等'
+        : '请输入具体的改进建议，例如：增加更多细节描写，加强人物对话等';
+
+    const dialogueSection = isStoryline ? `
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <span class="text-muted small">或者</span>
+            <button type="button" class="btn btn-outline-info btn-sm" id="btn-cont-storyline-dialogue-start" onclick="startStorylineImproveDialogue('${type}', true)">
+                <i class="fas fa-comments me-1"></i>AI 对话改进
+            </button>
+            <span class="text-muted small">— 让 AI 帮你梳理具体改进方向</span>
+        </div>
+        <div id="storyline-dialogue-container" class="dialogue-container mb-3" style="display:none;">
+            <div id="storyline-dialogue-messages" style="max-height:280px;overflow-y:auto;padding-bottom:4px;"></div>
+            <div id="storyline-dialogue-input-area" class="mt-2" style="display:none;">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="storyline-dialogue-custom-input" placeholder="直接输入你的想法...">
+                    <button class="btn btn-outline-info" onclick="sendStorylineDialogueMessage()"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    ` : '';
+
     const modalHtml = `
         <div class="modal fade" id="continuationImprovementModal" tabindex="-1">
             <div class="modal-dialog">
@@ -6929,22 +7208,25 @@ const showContinuationImprovementDialog = (type) => {
                     <div class="modal-header">
                         <h5 class="modal-title">
                             <i class="fas fa-magic me-2"></i>
-                            改进续写${type === 'storyline' ? '故事线' : '章节'}
+                            改进续写${titleLabel}
                         </h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="mb-3">
-                            <label for="continuation-improvement-suggestions" class="form-label">
-                                改进建议（可选，留空将使用AI自动分析）
-                            </label>
-                            <textarea class="form-control" id="continuation-improvement-suggestions" rows="4" 
-                                      placeholder="请输入具体的改进建议，例如：增加更多细节描写，加强人物对话等"></textarea>
+                        <div id="manual-input-area">
+                            <div class="mb-3">
+                                <label for="continuation-improvement-suggestions" class="form-label">
+                                    改进建议（可选，留空将使用AI自动分析）
+                                </label>
+                                <textarea class="form-control" id="continuation-improvement-suggestions" rows="4"
+                                          placeholder="${placeholder}"></textarea>
+                            </div>
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                如果不填写改进建议，系统将自动分析当前内容并提供改进方案。
+                            </div>
                         </div>
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            如果不填写改进建议，系统将自动分析当前内容并提供改进方案。
-                        </div>
+                        ${dialogueSection}
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>

@@ -3,6 +3,7 @@ import unittest
 
 from agents.chapter_writer import ChapterWriterAgent
 from agents.continuation_chapter_writer import ContinuationChapterWriter
+from core.chapter_length import CHAPTER_GENERATION_ATTEMPTS
 from inkai_workflow_optimized import InkAIWorkflowOptimized
 
 
@@ -64,6 +65,7 @@ class ChapterLengthTests(unittest.TestCase):
         self.assertEqual(2, len(captured_messages))
         self.assertIn("2500", captured_messages[1][-1]["content"])
         self.assertIn("2800-3200", captured_messages[1][-1]["content"])
+        self.assertIn("净增加至少300字", captured_messages[1][-1]["content"])
 
     def test_continuation_writer_compresses_an_overlong_chapter(self):
         agent = ContinuationChapterWriter.__new__(ContinuationChapterWriter)
@@ -121,11 +123,11 @@ class ChapterLengthTests(unittest.TestCase):
         self.assertFalse(workflow.data_manager.save_called)
         self.assertIn("2800-3200", result["error"])
 
-    def test_new_chapter_writer_fails_after_three_invalid_attempts(self):
+    def test_new_chapter_writer_fails_after_all_invalid_attempts(self):
         agent = ChapterWriterAgent.__new__(ChapterWriterAgent)
         responses = iter([
             json.dumps({"title": "第一章", "content": "短" * 2500, "summary": "概要"}, ensure_ascii=False)
-            for _ in range(3)
+            for _ in range(CHAPTER_GENERATION_ATTEMPTS)
         ])
         call_count = 0
 
@@ -137,7 +139,7 @@ class ChapterLengthTests(unittest.TestCase):
         agent.call_llm = fake_call_llm
         result = agent.process({"chapter_info": {}, "storyline": {}})
 
-        self.assertEqual(3, call_count)
+        self.assertEqual(CHAPTER_GENERATION_ATTEMPTS, call_count)
         self.assertIn("error", result)
         self.assertIn("2500", result["error"])
 

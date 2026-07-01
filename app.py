@@ -1179,6 +1179,125 @@ def improve_continuation_storyline(novel_id):
             "error": str(e)
         }), 500
 
+@app.route('/api/novels/<novel_id>/continuation/storyline/improve/dialogue', methods=['POST'])
+def continuation_storyline_improve_dialogue(novel_id):
+    """对话式续写故事线改进：AI 引导用户明确下一章故事线的优化需求"""
+    try:
+        data = request.get_json() or {}
+        messages = data.get("messages") or []
+
+        # 加载下一章故事线
+        next_storyline = workflow.data_manager.load_novel_data(novel_id, "next_chapter_storyline")
+        if not next_storyline:
+            return jsonify({"success": False, "error": "续写故事线数据不存在，请先生成故事线"}), 404
+
+        # 提取故事线摘要
+        parts = []
+        ch_num = next_storyline.get("chapter_number", "?")
+        ch_title = next_storyline.get("chapter_title", "")
+        if ch_title:
+            parts.append(f"第{ch_num}章「{ch_title}」")
+        scene = next_storyline.get("scene_setting", {})
+        if isinstance(scene, dict):
+            parts.append(f"场景：{scene.get('time','')} / {scene.get('location','')}")
+            parts.append(f"氛围：{scene.get('atmosphere','')}")
+
+        plot_points = next_storyline.get("plot_points", [])
+        if plot_points:
+            pts = [p.get("event", str(p)) if isinstance(p, dict) else str(p) for p in plot_points[:3]]
+            parts.append(f"情节要点：{'；'.join(pts)}")
+
+        key_events = next_storyline.get("key_events", [])
+        if key_events:
+            parts.append(f"关键事件：{'；'.join(key_events[:3])}")
+
+        foreshadowing = next_storyline.get("foreshadowing", [])
+        if foreshadowing:
+            fs = [f if isinstance(f, str) else f.get("description", str(f)) for f in foreshadowing[:3]]
+            parts.append(f"伏笔：{'；'.join(fs)}")
+
+        storyline_text = "\n".join(parts) if parts else "（完整故事线已加载）"
+
+        # 获取标签信息
+        metadata = workflow.data_manager.load_novel_data(novel_id, "metadata") or {}
+        tags = metadata.get("selected_tags", {}) if isinstance(metadata, dict) else {}
+        genre = tags.get("genre", "") if isinstance(tags, dict) else ""
+
+        user_turns = sum(1 for m in messages if isinstance(m, dict) and m.get("role") == "user")
+        last_user = next((m.get("content", "") for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "user"), "")
+
+        if user_turns == 0:
+            stage_hint = "这是第 1 轮。用户刚开始，先问他「想优化这一章故事线的哪个方面」，给 4-5 个具体选项。"
+        else:
+            stage_hint = (
+                f"用户刚才说：「{last_user[:100]}」。"
+                f"这是第 {user_turns + 1} 轮。先用一句话承接这句话（引用他的词），再追问一个更具体的细节。"
+                "如果已经聊清楚了改什么/怎么改/改多少，给出确认总结（confirming）；否则继续追问。"
+            )
+
+        system_prompt = f"""你是专业的故事编辑，正在和作者对话，帮他改进下一章（第{ch_num}章）的故事线。
+
+题材：{genre}
+
+当前故事线概览：
+---
+{storyline_text}
+---
+
+{stage_hint}
+
+你的目标：
+- 帮作者梳理故事线的具体改进方向：改什么？怎么改？改多少？
+- 追问直到能完整回答这三个问题
+- 当你对这三个问题都有明确答案时，给出确认总结（stage=confirming），options 用 ["✅ 确认开始改进", "🔄 重新描述需求"]
+- 确认总结必须包含：用户的所有关键需求 + 建议修改范围（minor/medium/major）
+- 话题要聚焦在这一章的结构层面：情节节点、场景设定、伏笔埋设、章末钩子、人物出场安排等
+- 不要讨论具体的段落词句（那是章节优化的事）
+- 你的建议要引用故事线中的具体内容（如已有的情节要点、场景设定等）
+
+返回纯 JSON：
+{{"question":"...","options":["...","..."],"stage":"clarifying","confirmed_requirements":null,"suggested_scope":null}}"""
+
+        llm_messages = [{"role": "system", "content": system_prompt}]
+        for m in messages:
+            if isinstance(m, dict):
+                llm_messages.append({"role": m.get("role", "user"), "content": m.get("content", "")})
+
+        if not messages:
+            llm_messages.append({"role": "user", "content": "我想改进这一章的故事线"})
+
+        agent = _LLMAgent("续写故事线对话")
+        agent.model = "deepseek-v4-pro"
+        response = agent.call_llm(llm_messages, temperature=0.7, max_tokens=800)
+
+        result = agent.parse_json_response(response)
+        if not result or not isinstance(result, dict) or "question" not in result:
+            print(f"[cont-storyline-dialogue] JSON 解析失败，raw[:200]: {response[:200]}")
+            if user_turns == 0:
+                result = {
+                    "question": "您想改进这一章故事线的哪个方面？",
+                    "options": ["情节节点与逻辑", "场景设定与氛围", "伏笔埋设与回收", "章末钩子力道", "人物出场安排", "其他（请描述）"],
+                    "stage": "opening",
+                    "confirmed_requirements": None,
+                    "suggested_scope": None
+                }
+            else:
+                result = {
+                    "question": f"了解。关于「{last_user[:60]}」，能再具体说说您期望的效果吗？",
+                    "options": ["调整情节节奏", "强化钩子悬念", "丰富场景细节", "优化人物互动", "其他想法"],
+                    "stage": "clarifying",
+                    "confirmed_requirements": None,
+                    "suggested_scope": None
+                }
+
+        return jsonify({"success": True, "data": result})
+
+    except Exception as e:
+        print(f"续写故事线对话错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"对话失败: {str(e)}"}), 500
+
 @app.route('/api/novels/<novel_id>/continuation/storyline', methods=['PUT'])
 def update_continuation_storyline(novel_id):
     """更新续写故事线"""
